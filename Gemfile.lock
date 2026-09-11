@@ -24,6 +24,8 @@ GEM
     net-smtp (0.5.1)
       net-protocol
     nkf (0.3.0)
+    pg (1.6.3)
+    pg (1.6.3-arm64-darwin)
     prism (1.9.0)
     rake (13.4.2)
     timeout (0.6.1)
@@ -37,6 +39,7 @@ DEPENDENCIES
   mail
   minitest
   nkf
+  pg
   rake
 
 CHECKSUMS
@@ -51,6 +54,8 @@ CHECKSUMS
   net-protocol (0.3.0) sha256=ba310c3d4f1cad46bb1ab20336b06669b1ff8f7c568d9cb9342b32a718547472
   net-smtp (0.5.1) sha256=ed96a0af63c524fceb4b29b0d352195c30d82dd916a42f03c62a3a70e5b70736
   nkf (0.3.0) sha256=357a8dbeba38b727b75930f665146546076a394a1c243faf634ff176e3588895
+  pg (1.6.3) sha256=1388d0563e13d2758c1089e35e973a3249e955c659592d10e5b77c468f628a99
+  pg (1.6.3-arm64-darwin) sha256=7240330b572e6355d7c75a7de535edb5dfcbd6295d9c7777df4d9dddfb8c0e5f
   prism (1.9.0) sha256=7b530c6a9f92c24300014919c9dcbc055bf4cdf51ec30aed099b06cd6674ef85
   rake (13.4.2) sha256=cb825b2bd5f1f8e91ca37bddb4b9aaf345551b4731da62949be002fa89283701
   timeout (0.6.1) sha256=78f57368a7e7bbadec56971f78a3f5ecbcfb59b7fcbb0a3ed6ddc08a5094accb
