@@ -2,6 +2,8 @@
 
 source 'https://rubygems.org'
 
+ruby '~> 4.0.6'
+
 gem 'aws-sdk-s3'
 gem 'mail'
 gem 'mcp'
