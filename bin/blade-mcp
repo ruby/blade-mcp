@@ -1,0 +1,52 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require 'bundler/setup'
+require 'optparse'
+require_relative '../lib/blade_mcp'
+require_relative '../lib/blade_mcp/importer'
+require_relative '../lib/blade_mcp/vault'
+
+usage = <<~TEXT
+  Usage: blade-mcp COMMAND [options]
+
+  Commands:
+    migrate   Create the tables and indexes in DATABASE_URL
+    import    Import every message of the given lists from the vault
+    update    Import messages newer than the last one stored
+
+  Options:
+TEXT
+
+options = {}
+parser = OptionParser.new do |opts|
+  opts.banner = usage
+  opts.on('--lists LIST,...', Array, 'Lists to process (default: all)') do |lists|
+    unknown = lists - BladeMcp::LISTS
+    raise OptionParser::InvalidArgument, "#{unknown.join(',')} (known: #{BladeMcp::LISTS.join(',')})" if unknown.any?
+    options[:lists] = lists
+  end
+  opts.on('--limit N', Integer, 'Stop after N messages per list') { |n| options[:limit] = n }
+  opts.on('--concurrency N', Integer, 'Parallel vault downloads (default 8)') { |n| options[:concurrency] = n }
+end
+
+begin
+  parser.parse!
+rescue OptionParser::ParseError => e
+  abort "blade-mcp: #{e.message}\n\n#{parser.help}"
+end
+
+command = ARGV.shift
+abort parser.help unless %w[migrate import update].include?(command)
+
+conn = BladeMcp::DB.connect
+$stdout.sync = true
+
+case command
+when 'migrate'
+  BladeMcp::DB.migrate(conn)
+when 'import', 'update'
+  importer = BladeMcp::Importer.new(BladeMcp::Store.new(conn), BladeMcp::Vault.new,
+                                    concurrency: options.fetch(:concurrency, 8))
+  importer.run(options[:lists] || BladeMcp::LISTS, limit: options[:limit], only_new: command == 'update')
+end

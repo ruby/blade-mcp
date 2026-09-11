@@ -5,7 +5,8 @@ ENV['DATABASE_URL'] = ENV.fetch('TEST_DATABASE_URL', 'postgres://postgres@localh
 
 require 'minitest/autorun'
 require_relative '../lib/blade_mcp'
-require_relative '../lib/blade_mcp/parser'
+require_relative '../lib/blade_mcp/importer'
+require_relative '../lib/blade_mcp/vault'
 
 BladeMcp::DB.current.exec('SET client_min_messages = warning')
 BladeMcp::DB.current.exec('DROP TABLE IF EXISTS attachments, messages')
