@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+ENV['RACK_ENV'] = 'test'
 # Never DATABASE_URL, which may point at the development database.
 ENV['DATABASE_URL'] = ENV.fetch('TEST_DATABASE_URL', 'postgres://postgres@localhost/blade_mcp_test')
 
