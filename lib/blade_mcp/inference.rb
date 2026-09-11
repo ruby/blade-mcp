@@ -9,6 +9,15 @@ module BladeMcp
   module Inference
     class Error < StandardError; end
 
+    class RateLimited < Error
+      attr_reader :retry_after
+
+      def initialize(message, retry_after)
+        super(message)
+        @retry_after = retry_after
+      end
+    end
+
     class Client
       RETRIES = 3
       NETWORK_ERRORS = [IOError, SystemCallError, Net::OpenTimeout, Net::ReadTimeout, OpenSSL::SSL::SSLError].freeze
@@ -27,12 +36,17 @@ module BladeMcp
 
       private
 
+      # A 429 is not retried here. The limits are per minute, and a search
+      # request should fall back to full-text rather than stall that long.
       def post(path, payload)
         RETRIES.times do |attempt|
           response = http_post(path, payload)
           return JSON.parse(response.body) if response.is_a?(Net::HTTPSuccess)
-          retryable = response.is_a?(Net::HTTPTooManyRequests) || response.is_a?(Net::HTTPServerError)
-          raise Error, "#{path} returned #{response.code}: #{response.body.to_s[0, 200]}" unless retryable && attempt < RETRIES - 1
+          message = "#{path} returned #{response.code}: #{response.body.to_s[0, 200]}"
+          if response.is_a?(Net::HTTPTooManyRequests)
+            raise RateLimited.new(message, Integer(response['Retry-After'], exception: false))
+          end
+          raise Error, message unless response.is_a?(Net::HTTPServerError) && attempt < RETRIES - 1
           sleep 2**attempt
         end
       end

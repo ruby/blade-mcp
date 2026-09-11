@@ -4,18 +4,20 @@ require 'test_helper'
 require 'socket'
 
 class InferenceTest < Minitest::Test
-  # Serves the given [status, body] pairs in order and records the requests.
+  # Serves the given [status, body, headers] responses in order and records
+  # the requests.
   def serve(*responses)
     server = TCPServer.new('127.0.0.1', 0)
     requests = []
     thread = Thread.new do
-      responses.each do |status, body|
+      responses.each do |status, body, headers = {}|
         socket = server.accept
         head = socket.gets("\r\n\r\n")
         length = head[/^content-length: (\d+)/i, 1].to_i
         requests << [head, JSON.parse(socket.read(length))]
+        extra = headers.map { |name, value| "#{name}: #{value}\r\n" }.join
         socket.write("HTTP/1.1 #{status} X\r\nContent-Type: application/json\r\nContent-Length: #{body.bytesize}\r\n" \
-                     "Connection: close\r\n\r\n#{body}")
+                     "#{extra}Connection: close\r\n\r\n#{body}")
         socket.close
       end
     end
@@ -48,6 +50,16 @@ class InferenceTest < Minitest::Test
     assert_equal 2, requests.size
     assert_equal({'model' => 'cohere-rerank-3-5', 'query' => 'q', 'documents' => %w[x y], 'top_n' => 2},
                  requests.last.last)
+  end
+
+  def test_rate_limits_are_raised_at_once_with_retry_after
+    requests = serve([429, '{}', {'Retry-After' => '7'}], [429, '{}']) do |url|
+      client = BladeMcp::Inference::Embedding.new(url, 'secret', 'cohere-embed-v4')
+      error = assert_raises(BladeMcp::Inference::RateLimited) { client.embed(%w[a], input_type: 'search_query') }
+      assert_equal 7, error.retry_after
+      assert_nil assert_raises(BladeMcp::Inference::RateLimited) { client.embed(%w[a], input_type: 'search_query') }.retry_after
+    end
+    assert_equal 2, requests.size
   end
 
   def test_client_errors_are_not_retried

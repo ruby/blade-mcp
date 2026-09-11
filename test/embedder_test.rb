@@ -16,8 +16,53 @@ class EmbedderTest < BladeMcp::TestCase
     end
   end
 
+  class RateLimitedClient < StubClient
+    def initialize(failures, retry_after: 0)
+      super()
+      @failures = failures
+      @retry_after = retry_after
+    end
+
+    def embed(texts, input_type:)
+      if @failures.positive?
+        @failures -= 1
+        raise BladeMcp::Inference::RateLimited.new('429', @retry_after)
+      end
+      super
+    end
+  end
+
   def embedded
     conn.exec('SELECT list, seq FROM messages WHERE embedding IS NOT NULL ORDER BY list, seq').map(&:values)
+  end
+
+  # Records the waits instead of sleeping through them.
+  def patient_embedder(client)
+    slept = @slept = []
+    embedder = BladeMcp::Embedder.new(conn, client, log: StringIO.new)
+    embedder.define_singleton_method(:sleep) { |seconds| slept << seconds }
+    embedder
+  end
+
+  def test_waits_out_rate_limits
+    save 'ruby-dev', 1
+    assert_equal 1, patient_embedder(RateLimitedClient.new(2, retry_after: 7)).run
+    assert_equal [7, 7], @slept
+    assert_equal [['ruby-dev', 1]], embedded
+  end
+
+  def test_waits_a_minute_without_retry_after
+    save 'ruby-dev', 1
+    patient_embedder(RateLimitedClient.new(1, retry_after: nil)).run
+    assert_equal [BladeMcp::Embedder::RATE_LIMIT_WAIT], @slept
+  end
+
+  def test_gives_up_after_repeated_rate_limits
+    save 'ruby-dev', 1
+    client = RateLimitedClient.new(BladeMcp::Embedder::RATE_LIMIT_RETRIES + 1)
+    assert_raises(BladeMcp::Inference::RateLimited) { patient_embedder(client).run }
+    assert_equal BladeMcp::Embedder::RATE_LIMIT_RETRIES, @slept.size
+    assert_empty embedded
   end
 
   def test_embeds_pending_messages_except_notifications_and_ruby_talk
