@@ -5,6 +5,7 @@ ENV['DATABASE_URL'] = ENV.fetch('TEST_DATABASE_URL', 'postgres://postgres@localh
 
 require 'minitest/autorun'
 require_relative '../lib/blade_mcp'
+require_relative '../lib/blade_mcp/embedder'
 require_relative '../lib/blade_mcp/importer'
 require_relative '../lib/blade_mcp/vault'
 

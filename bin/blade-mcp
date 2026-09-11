@@ -4,6 +4,7 @@
 require 'bundler/setup'
 require 'optparse'
 require_relative '../lib/blade_mcp'
+require_relative '../lib/blade_mcp/embedder'
 require_relative '../lib/blade_mcp/importer'
 require_relative '../lib/blade_mcp/vault'
 
@@ -13,7 +14,8 @@ usage = <<~TEXT
   Commands:
     migrate   Create the tables and indexes in DATABASE_URL
     import    Import every message of the given lists from the vault
-    update    Import messages newer than the last one stored
+    update    Import messages newer than the last one stored, then embed pending ones
+    embed     Compute embeddings for messages that have none
 
   Options:
 TEXT
@@ -21,12 +23,13 @@ TEXT
 options = {}
 parser = OptionParser.new do |opts|
   opts.banner = usage
-  opts.on('--lists LIST,...', Array, 'Lists to process (default: all)') do |lists|
+  opts.on('--lists LIST,...', Array,
+          "Lists to process (default: all for import and update, #{BladeMcp::Embedder::LISTS.join(',')} for embed)") do |lists|
     unknown = lists - BladeMcp::LISTS
     raise OptionParser::InvalidArgument, "#{unknown.join(',')} (known: #{BladeMcp::LISTS.join(',')})" if unknown.any?
     options[:lists] = lists
   end
-  opts.on('--limit N', Integer, 'Stop after N messages per list') { |n| options[:limit] = n }
+  opts.on('--limit N', Integer, 'Stop after N messages per list (import) or in total (embed)') { |n| options[:limit] = n }
   opts.on('--concurrency N', Integer, 'Parallel vault downloads (default 8)') { |n| options[:concurrency] = n }
 end
 
@@ -37,10 +40,16 @@ rescue OptionParser::ParseError => e
 end
 
 command = ARGV.shift
-abort parser.help unless %w[migrate import update].include?(command)
+abort parser.help unless %w[migrate import update embed].include?(command)
 
 conn = BladeMcp::DB.connect
 $stdout.sync = true
+
+def embed(conn, lists, limit)
+  client = BladeMcp::Inference::Embedding.from_env
+  return puts 'EMBEDDING_URL and EMBEDDING_KEY are not set, skipping embeddings' unless client
+  BladeMcp::Embedder.new(conn, client).run(lists: lists || BladeMcp::Embedder::LISTS, limit:)
+end
 
 case command
 when 'migrate'
@@ -49,4 +58,7 @@ when 'import', 'update'
   importer = BladeMcp::Importer.new(BladeMcp::Store.new(conn), BladeMcp::Vault.new,
                                     concurrency: options.fetch(:concurrency, 8))
   importer.run(options[:lists] || BladeMcp::LISTS, limit: options[:limit], only_new: command == 'update')
+  embed(conn, nil, nil) if command == 'update'
+when 'embed'
+  embed(conn, options[:lists], options[:limit])
 end
