@@ -85,6 +85,13 @@ class SearchTest < BladeMcp::TestCase
     assert_equal "[ruby-dev:30001] Re: おこられ\n\n直しました。", reranker.documents.first
   end
 
+  def test_rerank_documents_are_cut_to_rerank_chars
+    [1, 2].each { |seq| save 'ruby-list', seq, subject: 'long', body: "patch #{'long ' * 1000}\n" }
+    reranker = StubReranker.new
+    search('patch', reranker:, lists: %w[ruby-list])
+    assert_equal [BladeMcp::Search::RERANK_CHARS] * 2, reranker.documents.map(&:size)
+  end
+
   def test_limit_above_the_rerank_window_returns_more
     (1..50).each { |seq| save 'ruby-list', seq, subject: "matz #{seq}" }
     assert_equal 10, search('matz').size

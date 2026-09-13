@@ -10,8 +10,8 @@ module BladeMcp
       text.to_s.each_line.grep_v(QUOTE).join.gsub(/\n{3,}/, "\n\n")
     end
 
-    def passage(subject, body, limit)
-      "#{subject}\n\n#{without_quotes(body)}".gsub(/[ \t]+/, ' ').strip[0, limit]
+    def passage(subject, body)
+      "#{subject}\n\n#{without_quotes(body)}".gsub(/[ \t]+/, ' ').strip
     end
 
     def snippet(body, terms = [], size = 240)

@@ -32,7 +32,7 @@ module BladeMcp
         SQL
         break if rows.empty?
         texts = rows.map do |row|
-          text = Text.passage(row['subject'], row['body'], Inference::Embedding::MAX_CHARS)
+          text = Text.passage(row['subject'], row['body'])
           text.empty? ? '(empty)' : text
         end
         vectors = embed(texts)

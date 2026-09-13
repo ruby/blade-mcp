@@ -81,7 +81,7 @@ module BladeMcp
     end
 
     def rerank(query, rows)
-      documents = rows.map { |row| Text.passage(row['subject'], row['body'], RERANK_CHARS) }
+      documents = rows.map { |row| Text.passage(row['subject'], row['body'])[0, RERANK_CHARS] }
       @reranker.rerank(query, documents).map { |index, _score| rows[index] }
     rescue Inference::Error => e
       @log.puts "rerank skipped: #{e.message}"

@@ -41,6 +41,15 @@ class InferenceTest < Minitest::Test
                   'embedding_type' => 'float'}, payload)
   end
 
+  def test_embed_cuts_inputs_to_2048_bytes_on_a_character_boundary
+    body = JSON.generate(data: [{index: 0, embedding: [0.1]}, {index: 1, embedding: [0.2]}])
+    requests = serve([200, body]) do |url|
+      client = BladeMcp::Inference::Embedding.new(url, 'secret', 'cohere-embed-v4')
+      client.embed(["#{'a' * 2047}é", 'あ' * 683], input_type: 'search_document')
+    end
+    assert_equal ['a' * 2047, 'あ' * 682], requests.first.last['input']
+  end
+
   def test_rerank_returns_indexes_best_first_after_retrying_a_server_error
     body = JSON.generate(results: [{index: 1, relevance_score: 0.9}, {index: 0, relevance_score: 0.1}])
     requests = serve([503, '{}'], [200, body]) do |url|

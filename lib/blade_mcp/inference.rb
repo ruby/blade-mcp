@@ -60,16 +60,18 @@ module BladeMcp
     end
 
     class Embedding < Client
-      # The API rejects more inputs per request, or longer ones.
+      # The API rejects more inputs per request, or longer ones. Its error
+      # speaks of 2048 characters, but it counts UTF-8 bytes.
       MAX_INPUTS = 96
-      MAX_CHARS = 2048
+      MAX_BYTES = 2048
 
       def self.from_env(env = ENV)
         super('EMBEDDING', 'cohere-embed-v4', env)
       end
 
       def embed(texts, input_type:)
-        data = post('/v1/embeddings', {model: @model, input: texts, input_type:, embedding_type: 'float'})
+        input = texts.map { |text| text.byteslice(0, MAX_BYTES).scrub('') }
+        data = post('/v1/embeddings', {model: @model, input:, input_type:, embedding_type: 'float'})
         data.fetch('data').sort_by { |item| item['index'] }.map { |item| item['embedding'] }
       end
     end
