@@ -70,6 +70,16 @@ module BladeMcp
       encoding.name.match?(JAPANESE)
     end
 
+    # Mail decodes encoded words in Subject, display names and filenames
+    # through this encoder, whose default String#encode has no converter for
+    # labels such as ISO-2022-JP-2 and raises.
+    class CharsetEncoder < Mail::Utilities::BestEffortCharsetEncoder
+      def encode(string, charset)
+        Parser.japanese?(Mail::Utilities.pick_encoding(charset)) ? Parser.to_utf8(string, charset) : super
+      end
+    end
+    Mail::Utilities.charset_encoder = CharsetEncoder.new
+
     def field(mail, name)
       mail.header.fields.find { |f| f.name.casecmp?(name) }
     end

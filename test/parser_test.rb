@@ -37,6 +37,15 @@ class ParserTest < BladeMcp::TestCase
     assert_equal Time.utc(2006, 12, 8, 19, 47, 41), message.date
   end
 
+  def test_decodes_iso_2022_jp_2_encoded_words
+    message = parse(
+      from: "#{encoded_word('西 啓一朗', 'ISO-2022-JP-2')} <receiver@k-brand.gr.jp>",
+      subject: "[ruby-list:47856] Re: #{encoded_word('ruby1.9での文字列について', 'iso-2022-jp-2')}"
+    )
+    assert_equal '西 啓一朗', message.from_name
+    assert_equal '[ruby-list:47856] Re: ruby1.9での文字列について', message.subject
+  end
+
   def test_decodes_undeclared_euc_jp
     message = parse(content_type: nil, body: "大塚＠三井造船です. ruby ついに公開ですね.\n".encode('EUC-JP'))
     assert_equal "大塚＠三井造船です. ruby ついに公開ですね.\n", message.body

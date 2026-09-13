@@ -40,8 +40,8 @@ module BladeMcp
       store.save(Parser.parse(raw_mail(**mail), list, seq))
     end
 
-    def encoded_word(text)
-      "=?ISO-2022-JP?B?#{[text.encode('ISO-2022-JP')].pack('m0')}?="
+    def encoded_word(text, label = 'ISO-2022-JP')
+      "=?#{label}?B?#{[text.encode('ISO-2022-JP')].pack('m0')}?="
     end
 
     def vector(*hot)
