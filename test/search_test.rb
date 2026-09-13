@@ -64,6 +64,17 @@ class SearchTest < BladeMcp::TestCase
     assert_empty search('irb', lists: %w[ruby-core])
   end
 
+  def test_from_matches_part_of_the_sender_name_or_address
+    save 'ruby-dev', 30002, subject: 'Re: irb', from: 'Koichi Sasada <ko1@atdot.net>', body: "irb の件\n"
+    save 'ruby-dev', 30003, subject: 'Re: irb', from: '"100% sure" <someone@example.com>', body: "irb again\n"
+    assert_equal %w[ruby-dev:30000 ruby-dev:30001], search('irb', from: 'MATZ').sort
+    assert_equal %w[ruby-dev:30002], search('irb', from: 'ko1@')
+    assert_equal %w[ruby-dev:30002], search('irb', from: 'sasada')
+    assert_equal %w[ruby-dev:30003], search('irb', from: '%')
+    assert_empty search('irb', from: '_')
+    assert_empty search('irb', from: '\\')
+  end
+
   def test_notifications_are_left_out_unless_asked_for
     assert_empty search('quantum')
     assert_equal %w[ruby-core:120000], search('quantum', include_notifications: true)
@@ -77,6 +88,7 @@ class SearchTest < BladeMcp::TestCase
     assert_equal %w[ruby-dev:30000], search('金本')
     assert_equal %w[ruby-dev:30000 ruby-dev:30001], search('金本', embedder:)
     assert_equal %w[ruby-dev:30001], search('金本', embedder:, lists: %w[ruby-dev], since: Time.utc(2006, 12, 9, 12))
+    assert_empty search('金本', embedder:, from: 'nobody')
   end
 
   def test_rerank_orders_the_fused_candidates

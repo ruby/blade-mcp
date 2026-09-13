@@ -19,6 +19,11 @@ module BladeMcp
           lists: {type: 'array', items: {type: 'string', enum: LISTS}, description: 'Only these lists'},
           date_from: {type: 'string', description: 'Earliest date, YYYY-MM-DD in UTC'},
           date_to: {type: 'string', description: 'Latest date, YYYY-MM-DD in UTC, inclusive'},
+          from: {
+            type: 'string',
+            description: 'Only mails whose sender name or address contains this, ignoring case. Addresses have their ' \
+                         'domain masked, so use "matz" or "Yukihiro Matsumoto" to read what matz said.'
+          },
           include_notifications: {
             type: 'boolean',
             description: 'Also return Redmine notification mails, which keep only the subject and the issue number ' \
@@ -30,12 +35,12 @@ module BladeMcp
       )
       annotations(READ_ONLY)
 
-      def self.call(query:, server_context:, lists: nil, date_from: nil, date_to: nil, include_notifications: false,
-                    limit: 10)
+      def self.call(query:, server_context:, lists: nil, date_from: nil, date_to: nil, from: nil,
+                    include_notifications: false, limit: 10)
         return error_response('query must not be empty') if query.strip.empty?
         since = utc_date(date_from)
         before = utc_date(date_to)&.+(86_400)
-        rows = server_context[:search].call(query, lists:, since:, before:, include_notifications:,
+        rows = server_context[:search].call(query, lists:, since:, before:, from:, include_notifications:,
                                                    limit: limit.clamp(1, MAX_LIMIT))
         words = Bigram.words(query)
         results = rows.map do |row|

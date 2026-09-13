@@ -106,6 +106,7 @@ class AppTest < BladeMcp::TestCase
     assert_equal 'Yukihiro Matsumoto <matz@...>', reply['from']
     assert_equal '2006-12-10T01:00:00Z', reply['date']
     assert_equal 'Fixed.', reply['snippet']
+    assert_equal ['[ruby-dev:30000]'], call_tool('search', {query: 'File.exists', from: 'kanemoto'})['results'].map { _1['ref'] }
   end
 
   def test_search_date_range_includes_both_ends
