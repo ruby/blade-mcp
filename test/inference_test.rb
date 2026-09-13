@@ -71,6 +71,14 @@ class InferenceTest < Minitest::Test
     assert_equal 2, requests.size
   end
 
+  def test_blocked_requests_raise_at_once
+    requests = serve([403, '<html>Request blocked</html>']) do |url|
+      client = BladeMcp::Inference::Embedding.new(url, 'secret', 'cohere-embed-v4')
+      assert_raises(BladeMcp::Inference::Blocked) { client.embed(%w[a], input_type: 'search_document') }
+    end
+    assert_equal 1, requests.size
+  end
+
   def test_client_errors_are_not_retried
     requests = serve([400, '{"error":"bad input"}']) do |url|
       client = BladeMcp::Inference::Embedding.new(url, 'secret', 'cohere-embed-v4')

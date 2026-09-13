@@ -22,6 +22,8 @@ CREATE TABLE IF NOT EXISTS messages (
   UNIQUE (list, seq)
 );
 
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS embedding_skipped boolean NOT NULL DEFAULT false;
+
 CREATE INDEX IF NOT EXISTS messages_msgid ON messages (msgid);
 CREATE INDEX IF NOT EXISTS messages_parent_id ON messages (parent_id);
 CREATE INDEX IF NOT EXISTS messages_tsv ON messages USING gin (tsv);

@@ -69,4 +69,13 @@ class StoreTest < BladeMcp::TestCase
     save('ruby-dev', 1, body: "changed\n")
     refute conn.exec('SELECT embedding IS NOT NULL FROM messages').getvalue(0, 0)
   end
+
+  def test_reimport_keeps_a_skip_mark_only_when_the_text_is_unchanged
+    id = save('ruby-dev', 1, body: "same\n")
+    conn.exec_params('UPDATE messages SET embedding_skipped = true WHERE id = $1', [id])
+    save('ruby-dev', 1, body: "same\n")
+    assert conn.exec('SELECT embedding_skipped FROM messages').getvalue(0, 0)
+    save('ruby-dev', 1, body: "changed\n")
+    refute conn.exec('SELECT embedding_skipped FROM messages').getvalue(0, 0)
+  end
 end

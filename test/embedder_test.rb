@@ -32,8 +32,36 @@ class EmbedderTest < BladeMcp::TestCase
     end
   end
 
+  class BlockingClient < StubClient
+    def embed(texts, input_type:)
+      raise BladeMcp::Inference::Blocked, '403' if texts.any? { _1.include?('http://localhost/') }
+      super
+    end
+  end
+
   def embedded
     conn.exec('SELECT list, seq FROM messages WHERE embedding IS NOT NULL ORDER BY list, seq').map(&:values)
+  end
+
+  def skipped
+    conn.exec('SELECT list, seq FROM messages WHERE embedding_skipped ORDER BY list, seq').map(&:values)
+  end
+
+  def test_leaves_out_blocked_messages_for_good
+    (1..5).each { |seq| save 'ruby-dev', seq, body: seq == 4 ? "server = 'http://localhost/'\n" : "Hello #{seq}.\n" }
+    client = BlockingClient.new
+    log = StringIO.new
+    assert_equal 4, BladeMcp::Embedder.new(conn, client, log:).run
+    assert_equal [['ruby-dev', 1], ['ruby-dev', 2], ['ruby-dev', 3], ['ruby-dev', 5]], embedded
+    assert_equal [['ruby-dev', 4]], skipped
+    assert_match 'ruby-dev:4 was blocked', log.string
+    assert_equal 0, BladeMcp::Embedder.new(conn, client, log: StringIO.new).run
+  end
+
+  def test_stops_without_marking_when_a_whole_batch_is_blocked
+    (1..3).each { |seq| save 'ruby-dev', seq, body: "http://localhost/#{seq}\n" }
+    assert_raises(BladeMcp::Inference::Blocked) { BladeMcp::Embedder.new(conn, BlockingClient.new, log: StringIO.new).run }
+    assert_empty skipped
   end
 
   # Records the waits instead of sleeping through them.

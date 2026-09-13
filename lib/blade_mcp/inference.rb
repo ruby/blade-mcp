@@ -9,6 +9,10 @@ module BladeMcp
   module Inference
     class Error < StandardError; end
 
+    # CloudFront in front of the API answers 403 to some request bodies, such
+    # as ones holding http://localhost/ URLs. A wrong key gets 401 instead.
+    class Blocked < Error; end
+
     class RateLimited < Error
       attr_reader :retry_after
 
@@ -46,6 +50,7 @@ module BladeMcp
           if response.is_a?(Net::HTTPTooManyRequests)
             raise RateLimited.new(message, Integer(response['Retry-After'], exception: false))
           end
+          raise Blocked, "#{path} returned 403" if response.is_a?(Net::HTTPForbidden)
           raise Error, message unless response.is_a?(Net::HTTPServerError) && attempt < RETRIES - 1
           sleep 2**attempt
         end

@@ -21,33 +21,57 @@ module BladeMcp
 
     def run(lists: LISTS, limit: nil)
       done = 0
+      embedded = 0
       loop do
         size = [Inference::Embedding::MAX_INPUTS, limit && limit - done].compact.min
         break unless size.positive?
         rows = @conn.exec_params(<<~SQL, [lists, size]).to_a
-          SELECT id, subject, body FROM messages
-          WHERE embedding IS NULL AND NOT notification AND list = ANY($1::text[])
+          SELECT id, list, seq, subject, body FROM messages
+          WHERE embedding IS NULL AND NOT embedding_skipped AND NOT notification AND list = ANY($1::text[])
           ORDER BY id
           LIMIT $2
         SQL
         break if rows.empty?
-        texts = rows.map do |row|
-          text = Text.passage(row['subject'], row['body'])
-          text.empty? ? '(empty)' : text
-        end
-        vectors = embed(texts)
-        @conn.transaction do
-          rows.zip(vectors) do |row, vector|
-            @conn.exec_params('UPDATE messages SET embedding = $2::vector WHERE id = $1', [row['id'], DB.vector(vector)])
-          end
+        skipped = []
+        saved = store(rows, skipped)
+        # A whole batch turned away says more about the client than about the
+        # messages, so none of them is marked.
+        raise Inference::Blocked, 'every message in a batch was blocked' if saved.zero? && rows.size > 1
+        skipped.each do |row|
+          @conn.exec_params('UPDATE messages SET embedding_skipped = true WHERE id = $1', [row['id']])
+          @log.puts "#{row['list']}:#{row['seq']} was blocked, left without an embedding"
         end
         done += rows.size
-        @log.puts "embedded #{done} messages"
+        embedded += saved
+        @log.puts "embedded #{embedded} messages"
       end
-      done
+      embedded
     end
 
     private
+
+    # Only the offending message is blocked, so a blocked batch is halved
+    # until it stands alone.
+    def store(rows, skipped)
+      texts = rows.map do |row|
+        text = Text.passage(row['subject'], row['body'])
+        text.empty? ? '(empty)' : text
+      end
+      vectors = embed(texts)
+      @conn.transaction do
+        rows.zip(vectors) do |row, vector|
+          @conn.exec_params('UPDATE messages SET embedding = $2::vector WHERE id = $1', [row['id'], DB.vector(vector)])
+        end
+      end
+      rows.size
+    rescue Inference::Blocked
+      if rows.size == 1
+        skipped.concat(rows)
+        0
+      else
+        rows.each_slice(rows.size.ceildiv(2)).sum { |half| store(half, skipped) }
+      end
+    end
 
     # A backfill easily spends the 800k tokens per minute of cohere-embed-v4,
     # so it waits for the window to pass instead of giving up.
