@@ -9,8 +9,8 @@ module BladeMcp
   module Inference
     class Error < StandardError; end
 
-    # CloudFront in front of the API answers 403 to some request bodies, such
-    # as ones holding http://localhost/ URLs. A wrong key gets 401 instead.
+    # CloudFront in front of the API answers 403 to request bodies it takes
+    # for attacks. A wrong key gets 401 instead.
     class Blocked < Error; end
 
     class RateLimited < Error
@@ -25,6 +25,10 @@ module BladeMcp
     class Client
       RETRIES = 3
       NETWORK_ERRORS = [IOError, SystemCallError, Net::OpenTimeout, Net::ReadTimeout, OpenSSL::SSL::SSLError].freeze
+      # Code in the archive is full of URLs such as http://localhost:3000/ and
+      # http://192.168.1.1/, which CloudFront blocks as SSRF. Without the
+      # scheme they pass, and the text means the same to the models.
+      URL_SCHEME = %r{\b[a-z][a-z0-9+.\-]*://}i
 
       def self.from_env(prefix, default_model, env = ENV)
         url = env["#{prefix}_URL"]
@@ -39,6 +43,10 @@ module BladeMcp
       end
 
       private
+
+      def defuse(text)
+        text.gsub(URL_SCHEME, '')
+      end
 
       # A 429 is not retried here. The limits are per minute, and a search
       # request should fall back to full-text rather than stall that long.
@@ -75,7 +83,7 @@ module BladeMcp
       end
 
       def embed(texts, input_type:)
-        input = texts.map { |text| text.byteslice(0, MAX_BYTES).scrub('') }
+        input = texts.map { |text| defuse(text).byteslice(0, MAX_BYTES).scrub('') }
         data = post('/v1/embeddings', {model: @model, input:, input_type:, embedding_type: 'float'})
         data.fetch('data').sort_by { |item| item['index'] }.map { |item| item['embedding'] }
       end
@@ -88,7 +96,8 @@ module BladeMcp
 
       # Returns [index, relevance_score] pairs, best first.
       def rerank(query, documents)
-        data = post('/v1/rerank', {model: @model, query:, documents:, top_n: documents.size})
+        data = post('/v1/rerank', {model: @model, query: defuse(query), documents: documents.map { |document| defuse(document) },
+                                   top_n: documents.size})
         data.fetch('results').map { |item| [item['index'], item['relevance_score']] }
       end
     end

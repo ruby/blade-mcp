@@ -34,7 +34,7 @@ class EmbedderTest < BladeMcp::TestCase
 
   class BlockingClient < StubClient
     def embed(texts, input_type:)
-      raise BladeMcp::Inference::Blocked, '403' if texts.any? { _1.include?('http://localhost/') }
+      raise BladeMcp::Inference::Blocked, '403' if texts.any? { _1.include?('/latest/meta-data') }
       super
     end
   end
@@ -48,7 +48,7 @@ class EmbedderTest < BladeMcp::TestCase
   end
 
   def test_leaves_out_blocked_messages_for_good
-    (1..5).each { |seq| save 'ruby-dev', seq, body: seq == 4 ? "server = 'http://localhost/'\n" : "Hello #{seq}.\n" }
+    (1..5).each { |seq| save 'ruby-dev', seq, body: seq == 4 ? "curl 169.254.169.254/latest/meta-data/\n" : "Hello #{seq}.\n" }
     client = BlockingClient.new
     log = StringIO.new
     assert_equal 4, BladeMcp::Embedder.new(conn, client, log:).run
@@ -59,7 +59,7 @@ class EmbedderTest < BladeMcp::TestCase
   end
 
   def test_stops_without_marking_when_a_whole_batch_is_blocked
-    (1..3).each { |seq| save 'ruby-dev', seq, body: "http://localhost/#{seq}\n" }
+    (1..3).each { |seq| save 'ruby-dev', seq, body: "/latest/meta-data/#{seq}\n" }
     assert_raises(BladeMcp::Inference::Blocked) { BladeMcp::Embedder.new(conn, BlockingClient.new, log: StringIO.new).run }
     assert_empty skipped
   end

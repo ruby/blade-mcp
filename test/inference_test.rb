@@ -71,6 +71,18 @@ class InferenceTest < Minitest::Test
     assert_equal 2, requests.size
   end
 
+  def test_urls_lose_their_scheme_before_they_are_sent
+    embedded = JSON.generate(data: [{index: 0, embedding: [0.1]}])
+    reranked = JSON.generate(results: [{index: 0, relevance_score: 0.5}])
+    requests = serve([200, embedded], [200, reranked]) do |url|
+      BladeMcp::Inference::Embedding.new(url, 'secret', 'cohere-embed-v4')
+                                    .embed(["server = 'http://localhost:7000/'"], input_type: 'search_document')
+      BladeMcp::Inference::Rerank.new(url, 'secret', 'cohere-rerank-3-5').rerank('druby://localhost:12345', ['HTTPS://192.168.1.1/'])
+    end
+    assert_equal ["server = 'localhost:7000/'"], requests[0].last['input']
+    assert_equal ['localhost:12345', ['192.168.1.1/']], requests[1].last.values_at('query', 'documents')
+  end
+
   def test_blocked_requests_raise_at_once
     requests = serve([403, '<html>Request blocked</html>']) do |url|
       client = BladeMcp::Inference::Embedding.new(url, 'secret', 'cohere-embed-v4')
