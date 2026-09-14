@@ -77,6 +77,17 @@ class ExtractorTest < BladeMcp::TestCase
                  conn.exec('SELECT journal_id, kind, reported FROM statements ORDER BY journal_id').values
   end
 
+  def test_quotes_of_matz_comments_are_cut_from_other_comments
+    note 3, by_matz: false, notes: "matz (Yukihiro Matsumoto) wrote in #note-2:\n> I accept foo.\n>\n> Matz.\n\nThanks.\n\n" \
+                                   "From the meeting notes:\n> * matz: foo is fine.\n"
+    note 5, by_matz: true, notes: "mame (Yusuke Endoh) wrote:\n> Yukihiro Matsumoto wrote:\n> > old\n\nAccepted.\n"
+    client = StubChat.new { [] }
+    extract(client, sources: %w[redmine])
+    assert_includes client.prompts.first, "on 2024-01-03\n\n\nThanks.\n\nFrom the meeting notes:\n> * matz: foo is fine.\n"
+    refute_includes client.prompts.first, 'I accept foo.'
+    assert_includes client.prompts.last, "> Yukihiro Matsumoto wrote:\n> > old\n\nAccepted."
+  end
+
   def test_reads_meeting_notes_as_reported
     id = add_meeting_item
     client = StubChat.new { [statement(kind: 'accepted', quote: 'matz: accepted.')] }

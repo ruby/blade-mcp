@@ -24,6 +24,10 @@ module BladeMcp
     # Addresses are stored with their domain masked, and another matz@ once
     # posted as "Eye Matz".
     MATZ_MAILS = "m.from_address = 'matz@...' AND coalesce(m.from_name, '') IN ('Yukihiro Matsumoto', 'matz', 'matz@...', '')"
+    # A reply quoting one of matz's comments would have it recorded a second
+    # time, since his comments are read on their own. Telling the model to
+    # skip such quotes did not stop it, so they are cut before it reads.
+    MATZ_QUOTE = /^.*\b(?:matz \(Yukihiro Matsumoto\)|Yukihiro Matsumoto) wrote(?: in #note-\d+)?:[ \t]*\r?\n(?:[ \t]*>.*(?:\r?\n|\z))*/
 
     SYSTEM = <<~TEXT
       You read posts from the Ruby mailing lists, comments on bugs.ruby-lang.org and the notes of the Ruby developers' meetings, and record what Yukihiro Matsumoto (matz), the creator of Ruby, said about the design of Ruby and its standard library.
@@ -42,7 +46,6 @@ module BladeMcp
       - who gets commit access or maintains what, including permission to commit a patch
       - a description of how something works now that carries no judgment. When matz gives a reason the current behavior is right, record that as design.
       - hearsay with no occasion, such as someone recalling that matz said something somewhere. A report that names where he said it, such as a meeting or a comment, is recordable.
-
       When the target was written by someone else, record only what it reports matz said or decided, such as meeting notes.
 
       Use the context only to understand what the target refers to. Write topic, summary and rationale in English, and leave rationale empty when the target gives no reason. Copy quote verbatim from the target in its original language. List in features the Ruby classes, modules, methods, syntax or subsystems the statement is about, spelled as Ruby spells them, such as Ractor, YJIT, Ruby::Box, Hash#fetch or refinements. Call record_statements exactly once, with an empty list when the target holds nothing to record.
@@ -164,8 +167,9 @@ module BladeMcp
       if row['previous_notes']
         context += "\n\nPrevious comment by #{row['previous_author']}:\n#{row['previous_notes'][0, CONTEXT_CHARS]}"
       end
+      notes = row['by_matz'] ? row['notes'] : row['notes'].gsub(MATZ_QUOTE, '')
       target = "Comment #note-#{row['note_number']} on issue ##{row['issue_id']} by #{row['author_name']} " \
-               "on #{row['created_on'].getutc.strftime('%F')}\n\n#{row['notes'][0, TARGET_CHARS]}"
+               "on #{row['created_on'].getutc.strftime('%F')}\n\n#{notes[0, TARGET_CHARS]}"
       {id: row['journal_id'], date: row['created_on'], reported: !row['by_matz'], prompt: prompt(context, target)}
     end
 
