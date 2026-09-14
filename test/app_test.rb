@@ -57,6 +57,12 @@ class AppTest < BladeMcp::TestCase
     add_statement 'journal_id', 7, reported: true, kind: 'accepted', topic: 'Removal of File.exists?',
                                    summary: 'matz accepted removing File.exists?.', quote: 'matz: remove File.exists?',
                                    features: %w[File.exists?]
+    meeting = add_meeting_item(heading: '[[Misc #17392]](https://bugs.ruby-lang.org/issues/17392) File.exists? (hsbt)',
+                               body: "* matz: warn first.\n", issue_id: 17392)
+    add_statement 'meeting_item_id', meeting, date: Time.utc(2024, 2, 1), reported: true, kind: 'policy',
+                                              topic: 'Warning before removing File.exists?',
+                                              summary: 'matz wants a warning before File.exists? goes.',
+                                              quote: 'matz: warn first.', features: %w[File.exists?]
   end
 
   def mcp(method, params = {}, token: TOKEN)
@@ -161,7 +167,11 @@ class AppTest < BladeMcp::TestCase
                   {'kind' => 'accepted', 'topic' => 'Removal of File.exists?',
                    'summary' => 'matz accepted removing File.exists?.', 'quote' => 'matz: remove File.exists?',
                    'features' => ['File.exists?'], 'date' => '2024-01-03T00:00:00Z', 'issue' => 17391, 'note' => 4,
-                   'reported_by' => 'mame (Yusuke Endoh)'}],
+                   'reported_by' => 'mame (Yusuke Endoh)'},
+                  {'kind' => 'policy', 'topic' => 'Warning before removing File.exists?',
+                   'summary' => 'matz wants a warning before File.exists? goes.', 'quote' => 'matz: warn first.',
+                   'features' => ['File.exists?'], 'date' => '2024-02-01T00:00:00Z', 'issue' => 17392,
+                   'meeting' => '2024/DevMeeting-2024-02-01.md', 'agenda' => '[Misc #17392] File.exists? (hsbt)'}],
                  results.sort_by { _1['date'] }
     assert_equal ['accepted'], call_tool('search_matz', {query: 'File.exists', kinds: ['accepted']})['results'].map { _1['kind'] }
     assert_equal ['rejected'], call_tool('search_matz', {query: 'File.exists', include_reported: false})['results'].map { _1['kind'] }
@@ -170,9 +180,9 @@ class AppTest < BladeMcp::TestCase
 
   def test_matz_timeline
     timeline = call_tool('matz_timeline', {feature: 'file.exists', limit: 1})
-    assert_equal 2, timeline['total']
+    assert_equal 3, timeline['total']
     assert_equal ['[ruby-dev:30001]'], timeline['statements'].map { _1['ref'] }
-    assert_equal ['accepted'], call_tool('matz_timeline', {feature: 'File', date_from: '2007-01-01'})['statements'].map { _1['kind'] }
+    assert_equal %w[accepted policy], call_tool('matz_timeline', {feature: 'File', date_from: '2007-01-01'})['statements'].map { _1['kind'] }
   end
 
   def test_matz_timeline_needs_a_feature
@@ -195,7 +205,7 @@ class AppTest < BladeMcp::TestCase
       bodies.each { |body| refute_includes body, value }
     end
     expected = %w[ref from date subject issue snippet parent replies body attachments root messages truncated depth
-                  results filename size content kind topic summary rationale quote features note reported_by total
+                  results filename size content kind topic summary rationale quote features note meeting agenda reported_by total
                   statements]
     keys = bodies.flat_map { |body| collect_keys(JSON.parse(body)) }.uniq
     assert_empty keys - expected

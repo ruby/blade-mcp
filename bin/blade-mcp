@@ -7,6 +7,7 @@ require_relative '../lib/blade_mcp'
 require_relative '../lib/blade_mcp/embedder'
 require_relative '../lib/blade_mcp/extractor'
 require_relative '../lib/blade_mcp/importer'
+require_relative '../lib/blade_mcp/meeting_log'
 require_relative '../lib/blade_mcp/redmine'
 require_relative '../lib/blade_mcp/vault'
 
@@ -17,9 +18,10 @@ usage = <<~TEXT
     migrate          Apply the migrations in db/migrate that DATABASE_URL has not had yet
     import           Import every message of the given lists from the vault
     import-redmine   Import comments by or about matz from the Redmine database in BUGS_DATABASE_URL
-    update           Import new messages, sync bugs.ruby-lang.org comments, extract statements and embed what is new
+    import-meetings  Import the developers' meeting notes from a tarball of ruby/dev-meeting-log
+    update           Import new messages, sync comments and meeting notes, extract statements and embed what is new
     embed            Compute embeddings for messages and statements that have none
-    extract          Have the chat model record what matz said in his mails and in bugs.ruby-lang.org comments
+    extract          Have the chat model record what matz said in mails, bugs.ruby-lang.org comments and meeting notes
 
   Options:
 TEXT
@@ -49,7 +51,7 @@ rescue OptionParser::ParseError => e
 end
 
 command = ARGV.shift
-abort parser.help unless %w[migrate import import-redmine update embed extract].include?(command)
+abort parser.help unless %w[migrate import import-redmine import-meetings update embed extract].include?(command)
 abort 'blade-mcp: BUGS_DATABASE_URL is not set' if command == 'import-redmine' && !ENV['BUGS_DATABASE_URL']
 
 conn = BladeMcp::DB.connect
@@ -78,11 +80,14 @@ when 'import', 'update'
   if command == 'update'
     embed(conn, nil, nil)
     BladeMcp::Redmine.new(conn).sync
+    BladeMcp::MeetingLog.new(conn).sync
     extract(conn, nil, nil, 4) or puts 'INFERENCE_URL and INFERENCE_KEY are not set, skipping extraction'
     embed(conn, nil, nil)
   end
 when 'import-redmine'
   BladeMcp::Redmine.new(conn).import(BladeMcp::DB.connect(ENV.fetch('BUGS_DATABASE_URL')))
+when 'import-meetings'
+  BladeMcp::MeetingLog.new(conn).import
 when 'embed'
   embed(conn, options[:lists], options[:limit])
 when 'extract'

@@ -9,10 +9,11 @@ module BladeMcp
 
       tool_name 'search_matz'
       description 'Search what Yukihiro Matsumoto (matz), the creator of Ruby, said about the design of Ruby: ' \
-                  'statements drawn from his mails on the Ruby mailing lists and from bugs.ruby-lang.org comments by ' \
-                  'him or reporting his decisions, such as dev meeting notes. Each has a kind, an English summary and ' \
-                  'rationale, a verbatim quote in the original language, the features it is about, and its source: a ' \
-                  'ref for get_message, or an issue and note number on bugs.ruby-lang.org. Query with a few words, or ' \
+                  'statements drawn from his mails on the Ruby mailing lists, from bugs.ruby-lang.org comments by him ' \
+                  'or reporting his decisions, and from the notes of the developers\' meetings in ruby/dev-meeting-log. ' \
+                  'Each has a kind, an English summary and rationale, a verbatim quote in the original language, the ' \
+                  'features it is about, and its source: a ref for get_message, an issue and note number on ' \
+                  'bugs.ruby-lang.org, or a meeting notes file and agenda item. Query with a few words, or ' \
                   'with a whole proposal to find precedents for it. Matches are by words and by meaning, reranked.'
       input_schema(
         properties: {

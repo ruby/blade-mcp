@@ -6,23 +6,27 @@ require_relative 'statements'
 require_relative 'text'
 
 module BladeMcp
-  # Has the chat model read matz's mails and the bugs.ruby-lang.org comments
-  # by or about him, and stores what he said as statements. Each mail or
-  # comment is read once, unless its text changes on a later import.
+  # Has the chat model read matz's mails, the bugs.ruby-lang.org comments by
+  # or about him and the agenda items of the developers' meeting notes, and
+  # stores what he said as statements. Each is read once, unless its text
+  # changes on a later import.
   class Extractor
     include Patience
 
-    SOURCES = %w[ml redmine].freeze
+    SOURCES = %w[ml redmine meeting].freeze
     BATCH = 20
     CONTEXT_CHARS = 3000
     TARGET_CHARS = 12_000
+    # A few agenda items hold a whole IRC log or a long discussion, where
+    # matz may speak last.
+    MEETING_CHARS = 40_000
     QUOTE_CHARS = 500
     # Addresses are stored with their domain masked, and another matz@ once
     # posted as "Eye Matz".
     MATZ_MAILS = "m.from_address = 'matz@...' AND coalesce(m.from_name, '') IN ('Yukihiro Matsumoto', 'matz', 'matz@...', '')"
 
     SYSTEM = <<~TEXT
-      You read posts from the Ruby mailing lists and comments on bugs.ruby-lang.org, and record what Yukihiro Matsumoto (matz), the creator of Ruby, said about the design of Ruby and its standard library.
+      You read posts from the Ruby mailing lists, comments on bugs.ruby-lang.org and the notes of the Ruby developers' meetings, and record what Yukihiro Matsumoto (matz), the creator of Ruby, said about the design of Ruby and its standard library.
 
       Record a statement for each point where matz, in the target:
       - accepts or rejects a proposal or change (accepted, rejected)
@@ -118,11 +122,18 @@ module BladeMcp
           ORDER BY m.id
           LIMIT $1
         SQL
-      else
+      elsif source == 'redmine'
         @conn.exec_params(<<~SQL, [size, failed]).map { |row| note_item(row) }
           SELECT * FROM redmine_notes
           WHERE statements_extracted_at IS NULL AND journal_id <> ALL($2::integer[])
           ORDER BY journal_id
+          LIMIT $1
+        SQL
+      else
+        @conn.exec_params(<<~SQL, [size, failed]).map { |row| meeting_item(row) }
+          SELECT * FROM meeting_items
+          WHERE statements_extracted_at IS NULL AND id <> ALL($2::bigint[])
+          ORDER BY id
           LIMIT $1
         SQL
       end
@@ -150,6 +161,15 @@ module BladeMcp
       target = "Comment #note-#{row['note_number']} on issue ##{row['issue_id']} by #{row['author_name']} " \
                "on #{row['created_on'].getutc.strftime('%F')}\n\n#{row['notes'][0, TARGET_CHARS]}"
       {id: row['journal_id'], date: row['created_on'], reported: !row['by_matz'], prompt: prompt(context, target)}
+    end
+
+    def meeting_item(row)
+      date = row['date']
+      context = "Notes of the Ruby developers' meeting on #{date.iso8601}, written by the attendees and kept as " \
+                "#{row['path']} in ruby/dev-meeting-log. The meeting is where proposals get matz's agreement."
+      heading = row['heading'].empty? ? 'the part of the notes before any heading' : "the agenda item \"#{row['heading']}\""
+      target = "From #{heading}\n\n#{row['body'][0, MEETING_CHARS]}"
+      {id: row['id'], date: Time.utc(date.year, date.month, date.day), reported: true, prompt: prompt(context, target)}
     end
 
     def prompt(context, target)
@@ -196,7 +216,8 @@ module BladeMcp
     end
 
     def store(source, item, statements)
-      column, table, key = source == 'ml' ? %w[message_id messages id] : %w[journal_id redmine_notes journal_id]
+      column, table, key = {'ml' => %w[message_id messages id], 'redmine' => %w[journal_id redmine_notes journal_id],
+                            'meeting' => %w[meeting_item_id meeting_items id]}.fetch(source)
       @conn.exec_params("DELETE FROM statements WHERE #{column} = $1", [item[:id]])
       corpus = Statements.new(@conn)
       statements.each do |statement|

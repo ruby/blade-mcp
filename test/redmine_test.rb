@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require 'test_helper'
-require 'socket'
 
 class RedmineTest < BladeMcp::TestCase
   # The few Redmine tables and columns the import reads, in a schema of their own.
@@ -33,11 +32,6 @@ class RedmineTest < BladeMcp::TestCase
       (7, 200, 13, 'Hidden.', false, '2024-01-01 00:00:00'),
       (8, 300, 13, 'Archived.', false, '2024-01-01 00:00:00');
   SQL
-
-  def setup
-    super
-    conn.exec('TRUNCATE sync_state')
-  end
 
   def bugs
     @bugs ||= BladeMcp::DB.connect.tap do |bugs|
@@ -75,32 +69,6 @@ class RedmineTest < BladeMcp::TestCase
     redmine.import(bugs)
     assert_equal [[3, false], [5, true]],
                  conn.exec('SELECT journal_id, statements_extracted_at IS NOT NULL FROM redmine_notes ORDER BY journal_id').values
-  end
-
-  # Serves JSON for the given paths and records the query strings requested.
-  def serve(routes)
-    server = TCPServer.new('127.0.0.1', 0)
-    requested = []
-    thread = Thread.new do
-      loop do
-        socket = server.accept
-        target = socket.gets.split[1]
-        socket.gets("\r\n\r\n")
-        requested << target
-        body = routes.fetch(target.split('?').first) { |path| raise "unexpected #{path}" }
-        body = body.call(target) if body.respond_to?(:call)
-        socket.write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: #{body.bytesize}\r\n" \
-                     "Connection: close\r\n\r\n#{body}")
-        socket.close
-      end
-    rescue IOError
-      nil
-    end
-    yield "http://127.0.0.1:#{server.addr[1]}"
-    requested
-  ensure
-    server&.close
-    thread&.join
   end
 
   def issue_json(id, journals)

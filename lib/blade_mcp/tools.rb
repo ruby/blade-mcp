@@ -39,8 +39,9 @@ module BladeMcp
         }.compact
       end
 
-      # Mails are cited by ref, and bugs.ruby-lang.org comments by issue and
-      # note number.
+      # Mails are cited by ref, bugs.ruby-lang.org comments by issue and note
+      # number, and meeting notes by their file in ruby/dev-meeting-log and
+      # the agenda heading, with links reduced to their text.
       def statement(row)
         {
           kind: row['kind'],
@@ -53,6 +54,8 @@ module BladeMcp
           ref: (ref(row['list'], row['seq']) if row['list']),
           issue: row['issue_id'],
           note: row['note_number'],
+          meeting: row['meeting'],
+          agenda: (row['agenda'].gsub(/\[(\[[^\]]*\]|[^\]]*)\]\(https?:[^)]*\)/, '\1') unless row['agenda'].to_s.empty?),
           reported_by: (row['author_name'] if row['reported'])
         }.compact
       end

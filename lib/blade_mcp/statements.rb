@@ -5,11 +5,13 @@ require_relative 'db'
 
 module BladeMcp
   # The statements extracted from what matz wrote or was reported to have
-  # said, searched as a corpus of their own.
+  # said, in mails, bugs.ruby-lang.org comments and developers' meeting notes,
+  # searched as a corpus of their own.
   class Statements
     KINDS = %w[accepted rejected design naming policy opinion undecided condition principle].freeze
     COLUMNS = 's.id, s.kind, s.topic, s.summary, s.rationale, s.quote, s.features, s.date, s.reported, ' \
-              'm.list, m.seq, n.issue_id, n.note_number, n.author_name'
+              'm.list, m.seq, coalesce(n.issue_id, i.issue_id) AS issue_id, n.note_number, n.author_name, ' \
+              'i.path AS meeting, i.heading AS agenda'
 
     def self.document(row)
       row.values_at('topic', 'summary', 'rationale', 'quote').compact.join("\n\n")
@@ -21,7 +23,8 @@ module BladeMcp
       @conn = conn
     end
 
-    # column is message_id or journal_id, the source the statement came from.
+    # column is message_id, journal_id or meeting_item_id, the source the
+    # statement came from.
     def insert(column, id, statement, date:, reported:, model:)
       s = statement
       params = [id, date, s[:kind], s[:topic], s[:summary], s[:rationale], s[:quote], s[:features], reported, model,
@@ -57,6 +60,7 @@ module BladeMcp
         FROM statements s
         LEFT JOIN messages m ON m.id = s.message_id
         LEFT JOIN redmine_notes n ON n.journal_id = s.journal_id
+        LEFT JOIN meeting_items i ON i.id = s.meeting_item_id
         WHERE s.id = ANY($1::bigint[])
       SQL
       rows.sort_by { |row| ids.index(row['id']) }

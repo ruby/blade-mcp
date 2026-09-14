@@ -16,7 +16,8 @@ module BladeMcp
       [ruby-dev:30000]. Redmine notification mails keep only their subject and issue number; read those issues with
       the bugs.ruby-lang.org MCP server (`get_issue`), which also takes the issue numbers reported here.
 
-      What matz said about the design of Ruby is also kept as statements, each with a verbatim quote and its source:
+      What matz said about the design of Ruby, in these mails, on bugs.ruby-lang.org and in the developers' meeting
+      notes, is also kept as statements, each with a verbatim quote and its source:
       `search_matz` finds them by words or meaning, and `matz_timeline` lists those on one feature in date order. To
       judge how matz would see a new proposal, search with the proposal, weigh the statements found, and cite their
       quotes and sources. A statement is evidence of what he said then, not a ruling on the proposal.

@@ -77,6 +77,18 @@ class ExtractorTest < BladeMcp::TestCase
                  conn.exec('SELECT journal_id, kind, reported FROM statements ORDER BY journal_id').values
   end
 
+  def test_reads_meeting_notes_as_reported
+    id = add_meeting_item
+    client = StubChat.new { [statement(kind: 'accepted', quote: 'matz: accepted.')] }
+    assert_equal 1, extract(client, sources: %w[meeting])
+    assert_includes client.prompts.first, "Notes of the Ruby developers' meeting on 2024-02-01, written by the attendees " \
+                                          'and kept as 2024/DevMeeting-2024-02-01.md in ruby/dev-meeting-log.'
+    assert_includes client.prompts.first, "From the agenda item \"[[Feature #100]](https://bugs.ruby-lang.org/issues/100) " \
+                                          "Add Array#foo (mame)\"\n\n* matz: accepted."
+    assert_equal [[id, true, Time.utc(2024, 2, 1)]], conn.exec('SELECT meeting_item_id, reported, date FROM statements').values
+    assert_equal [id], extracted('meeting_items', 'id')
+  end
+
   def test_blocked_text_is_not_read_again_but_failures_are
     save 'ruby-dev', 1, body: "blocked\n"
     save 'ruby-dev', 2, body: "flaky\n"
