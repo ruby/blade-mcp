@@ -3,7 +3,7 @@
 An MCP server for the archive of the Ruby mailing lists (ruby-core, ruby-dev, ruby-list, ruby-talk, ruby-ext and ruby-math). It imports the original messages from the private `blade-data-vault` bucket into Postgres and serves read-only tools at `POST /mcp` over Streamable HTTP in stateless mode: `search`, `get_message` and `get_thread` over the mail, and `search_matz` and `matz_timeline` over what matz said about the design of Ruby, drawn from his mails and bugs.ruby-lang.org comments.
 
 ```
-claude mcp add --transport http blade https://<host>/mcp --header "Authorization: Bearer $BLADE_MCP_TOKEN"
+claude mcp add --transport http blade https://blade.ruby-lang.org/mcp --header "Authorization: Bearer $BLADE_MCP_TOKEN"
 ```
 
 Responses carry the sender's name with the domain masked (`matz@...`), the date, the subject, the decoded body and attachments. To, Cc, Reply-To, Return-Path, Received and Message-ID are never returned. Redmine notification mails keep only the subject and the issue number, which the bugs.ruby-lang.org MCP server takes.
