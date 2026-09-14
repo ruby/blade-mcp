@@ -33,7 +33,7 @@ bin/blade-mcp embed --lists ruby-talk
 bin/blade-mcp extract --sources redmine --limit 100
 ```
 
-`import` reads whole lists, `update` takes only messages numbered above the last one stored, embeds pending messages and then fetches bugs.ruby-lang.org comments by or about matz through the REST API, which is what Heroku Scheduler runs daily. `import-redmine` fills those comments in from the Redmine database once and has to run before the first `update`. `embed` covers every list but ruby-talk by default and skips Redmine notifications. `extract` has the chat model read matz's mails, with the post each one replies to, and those comments, and records what he said about Ruby's design as statements: decisions, opinions, conditions and principles, each with its reason and the features it concerns. Every mail and comment is read once.
+`import` reads whole lists, `update` takes only messages numbered above the last one stored, embeds them, fetches bugs.ruby-lang.org comments by or about matz through the REST API, extracts statements from the mails and comments not yet read and embeds those statements, which is what Heroku Scheduler runs daily. `import-redmine` fills those comments in from the Redmine database once and has to run before the first `update`. `embed` covers every list but ruby-talk by default and skips Redmine notifications. `extract` has the chat model read matz's mails, with the post each one replies to, and those comments, and records what he said about Ruby's design as statements: decisions, opinions, conditions and principles, each with its reason and the features it concerns. Every mail and comment is read once.
 
 ## Development
 

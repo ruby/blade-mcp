@@ -17,7 +17,7 @@ usage = <<~TEXT
     migrate          Create the tables and indexes in DATABASE_URL
     import           Import every message of the given lists from the vault
     import-redmine   Import comments by or about matz from the Redmine database in BUGS_DATABASE_URL
-    update           Import and embed new messages, then sync bugs.ruby-lang.org comments
+    update           Import new messages, sync bugs.ruby-lang.org comments, extract statements and embed what is new
     embed            Compute embeddings for messages and statements that have none
     extract          Have the chat model record what matz said in his mails and in bugs.ruby-lang.org comments
 
@@ -63,6 +63,11 @@ def embed(conn, lists, limit)
   embedder.run_statements(limit:)
 end
 
+def extract(conn, sources, limit, concurrency)
+  client = BladeMcp::Inference::Chat.from_env or return
+  BladeMcp::Extractor.new(conn, client, concurrency:).run(sources: sources || BladeMcp::Extractor::SOURCES, limit:)
+end
+
 case command
 when 'migrate'
   BladeMcp::DB.migrate(conn)
@@ -73,13 +78,14 @@ when 'import', 'update'
   if command == 'update'
     embed(conn, nil, nil)
     BladeMcp::Redmine.new(conn).sync
+    extract(conn, nil, nil, 4) or puts 'INFERENCE_URL and INFERENCE_KEY are not set, skipping extraction'
+    embed(conn, nil, nil)
   end
 when 'import-redmine'
   BladeMcp::Redmine.new(conn).import(BladeMcp::DB.connect(ENV.fetch('BUGS_DATABASE_URL')))
 when 'embed'
   embed(conn, options[:lists], options[:limit])
 when 'extract'
-  client = BladeMcp::Inference::Chat.from_env or abort 'blade-mcp: INFERENCE_URL and INFERENCE_KEY are not set'
-  BladeMcp::Extractor.new(conn, client, concurrency: options.fetch(:concurrency, 4))
-                     .run(sources: options.fetch(:sources, BladeMcp::Extractor::SOURCES), limit: options[:limit])
+  extract(conn, options[:sources], options[:limit], options.fetch(:concurrency, 4)) or
+    abort 'blade-mcp: INFERENCE_URL and INFERENCE_KEY are not set'
 end
