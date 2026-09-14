@@ -8,6 +8,12 @@ claude mcp add --transport http blade https://blade.ruby-lang.org/mcp --header "
 
 Responses carry the sender's name with the domain masked (`matz@...`), the date, the subject, the decoded body and attachments. To, Cc, Reply-To, Return-Path, Received and Message-ID are never returned. Redmine notification mails keep only the subject and the issue number, which the bugs.ruby-lang.org MCP server takes.
 
+The skill in [skills/blade](skills/blade/SKILL.md) shows Claude how to use these tools in the core team's daily work, from finding past discussions and judging who decides a question and how matz would see a proposal, to drafting an agenda item for the developers' meeting. Install it as a personal skill:
+
+```
+mkdir -p ~/.claude/skills/blade && curl -fsSL https://raw.githubusercontent.com/ruby/blade-mcp/main/skills/blade/SKILL.md -o ~/.claude/skills/blade/SKILL.md
+```
+
 ## Configuration
 
 | Variable | Purpose |
