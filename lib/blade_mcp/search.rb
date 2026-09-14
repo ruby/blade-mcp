@@ -14,11 +14,16 @@ module BladeMcp
     RERANK = 30
     RERANK_CHARS = 4000
     RRF_K = 60
+    # Ranking reads the whole tsvector of every match, so a word found in
+    # most messages, such as "ruby", takes longer than any client waits.
+    # Past this many milliseconds the semantic ranking goes on alone.
+    LEXICAL_TIMEOUT = 2000
 
-    def initialize(corpus, embedder: nil, reranker: nil, log: $stderr)
+    def initialize(corpus, embedder: nil, reranker: nil, lexical_timeout: LEXICAL_TIMEOUT, log: $stderr)
       @corpus = corpus
       @embedder = embedder
       @reranker = reranker
+      @lexical_timeout = lexical_timeout
       @log = log
     end
 
@@ -39,12 +44,18 @@ module BladeMcp
       params = phrases.dup
       tsquery = phrases.each_index.map { |i| "phraseto_tsquery('simple', $#{i + 1})" }.join(' && ')
       where = ['tsv @@ q', *@corpus.conditions(params, **filters)]
-      @corpus.conn.exec_params(<<~SQL, params).column_values(0)
-        SELECT id FROM #{@corpus.table}, (SELECT #{tsquery}) AS query (q)
-        WHERE #{where.join(' AND ')}
-        ORDER BY ts_rank_cd(tsv, q) DESC, id
-        LIMIT #{depth}
-      SQL
+      @corpus.conn.transaction do |conn|
+        conn.exec("SET LOCAL statement_timeout = #{Integer(@lexical_timeout)}")
+        conn.exec_params(<<~SQL, params).column_values(0)
+          SELECT id FROM #{@corpus.table}, (SELECT #{tsquery}) AS query (q)
+          WHERE #{where.join(' AND ')}
+          ORDER BY ts_rank_cd(tsv, q) DESC, id
+          LIMIT #{depth}
+        SQL
+      end
+    rescue PG::QueryCanceled
+      @log.puts "full-text search skipped after #{@lexical_timeout}ms"
+      []
     end
 
     # Without iterative scans, the index stops after hnsw.ef_search (40)

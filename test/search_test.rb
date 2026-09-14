@@ -110,6 +110,26 @@ class SearchTest < BladeMcp::TestCase
     assert_equal 45, search('matz', limit: 45).size
   end
 
+  # Keeps the query running past a short timeout, as a word found in most
+  # messages would.
+  class SlowStore < BladeMcp::Store
+    def conditions(params, **filters)
+      super << '(SELECT true FROM pg_sleep(0.05))'
+    end
+  end
+
+  def test_a_slow_full_text_search_leaves_the_semantic_ranking_alone
+    ids = %w[30000 30001].to_h { [_1, store.find('ruby-dev', _1.to_i)['id']] }
+    conn.exec_params('UPDATE messages SET embedding = $2::vector WHERE id = $1', [ids['30000'], vector(0)])
+    conn.exec_params('UPDATE messages SET embedding = $2::vector WHERE id = $1', [ids['30001'], vector(1)])
+    embedder = StubEmbedder.new([0.0, 1.0] + Array.new(1534, 0.0))
+    assert_equal %w[ruby-dev:30000 ruby-dev:30001], search('金本', embedder:)
+    log = StringIO.new
+    rows = BladeMcp::Search.new(SlowStore.new(conn), embedder:, lexical_timeout: 10, log:).call('金本')
+    assert_equal %w[ruby-dev:30001 ruby-dev:30000], refs(rows)
+    assert_match 'full-text search skipped after 10ms', log.string
+  end
+
   def test_inference_failures_fall_back_to_full_text
     embedder = StubEmbedder.new { raise BladeMcp::Inference::Error, 'down' }
     assert_equal %w[ruby-dev:30000], search('金本', embedder:)
