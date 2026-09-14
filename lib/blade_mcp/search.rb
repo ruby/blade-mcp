@@ -3,20 +3,20 @@
 require_relative 'bigram'
 require_relative 'db'
 require_relative 'inference'
-require_relative 'text'
 
 module BladeMcp
   # Full-text and vector candidates are merged with reciprocal rank fusion,
   # and the head of the merged list is reordered by the rerank model. Either
-  # client may be absent, which leaves the full-text ranking in charge.
+  # client may be absent, which leaves the full-text ranking in charge. The
+  # corpus names the table and turns filters into conditions on it.
   class Search
     CANDIDATES = 40
     RERANK = 30
     RERANK_CHARS = 4000
     RRF_K = 60
 
-    def initialize(store, embedder: nil, reranker: nil, log: $stderr)
-      @store = store
+    def initialize(corpus, embedder: nil, reranker: nil, log: $stderr)
+      @corpus = corpus
       @embedder = embedder
       @reranker = reranker
       @log = log
@@ -26,7 +26,7 @@ module BladeMcp
       depth = [CANDIDATES, limit].max
       rankings = [lexical(query, depth, filters)]
       rankings << semantic(query, depth, filters) if @embedder
-      rows = @store.rows(fuse(rankings).first([RERANK, limit].max))
+      rows = @corpus.rows(fuse(rankings).first([RERANK, limit].max))
       rows = rerank(query, rows) if @reranker && rows.size > 1
       rows.first(limit)
     end
@@ -38,9 +38,9 @@ module BladeMcp
       return [] if phrases.empty?
       params = phrases.dup
       tsquery = phrases.each_index.map { |i| "phraseto_tsquery('simple', $#{i + 1})" }.join(' && ')
-      where = ['tsv @@ q', *conditions(params, **filters)]
-      @store.conn.exec_params(<<~SQL, params).column_values(0)
-        SELECT id FROM messages, (SELECT #{tsquery}) AS query (q)
+      where = ['tsv @@ q', *@corpus.conditions(params, **filters)]
+      @corpus.conn.exec_params(<<~SQL, params).column_values(0)
+        SELECT id FROM #{@corpus.table}, (SELECT #{tsquery}) AS query (q)
         WHERE #{where.join(' AND ')}
         ORDER BY ts_rank_cd(tsv, q) DESC, id
         LIMIT #{depth}
@@ -51,29 +51,16 @@ module BladeMcp
     # rows, before the list and date filters are applied.
     def semantic(query, depth, filters)
       params = [DB.vector(@embedder.embed([query], input_type: 'search_query').first)]
-      where = ['embedding IS NOT NULL', *conditions(params, **filters)]
-      @store.conn.transaction do |conn|
+      where = ['embedding IS NOT NULL', *@corpus.conditions(params, **filters)]
+      @corpus.conn.transaction do |conn|
         conn.exec('SET LOCAL hnsw.iterative_scan = strict_order')
         conn.exec_params(<<~SQL, params).column_values(0)
-          SELECT id FROM messages WHERE #{where.join(' AND ')} ORDER BY embedding <=> $1::vector LIMIT #{depth}
+          SELECT id FROM #{@corpus.table} WHERE #{where.join(' AND ')} ORDER BY embedding <=> $1::vector LIMIT #{depth}
         SQL
       end
     rescue Inference::Error => e
       @log.puts "semantic search skipped: #{e.message}"
       []
-    end
-
-    def conditions(params, lists: nil, since: nil, before: nil, from: nil, include_notifications: false)
-      sql = []
-      sql << "list = ANY($#{params.push(lists).size}::text[])" if lists
-      sql << "date >= $#{params.push(since).size}" if since
-      sql << "date < $#{params.push(before).size}" if before
-      if from
-        n = params.push("%#{from.gsub(/[\\%_]/) { |c| "\\#{c}" }}%").size
-        sql << "(from_name ILIKE $#{n} OR from_address ILIKE $#{n})"
-      end
-      sql << 'NOT notification' unless include_notifications
-      sql
     end
 
     def fuse(rankings)
@@ -85,7 +72,7 @@ module BladeMcp
     end
 
     def rerank(query, rows)
-      documents = rows.map { |row| Text.passage(row['subject'], row['body'])[0, RERANK_CHARS] }
+      documents = rows.map { |row| @corpus.document(row)[0, RERANK_CHARS] }
       @reranker.rerank(query, documents).map { |index, _score| rows[index] }
     rescue Inference::Error => e
       @log.puts "rerank skipped: #{e.message}"

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative 'bigram'
+require_relative 'text'
 
 module BladeMcp
   class Store
@@ -60,6 +61,26 @@ module BladeMcp
     def rows(ids)
       rows = @conn.exec_params("SELECT #{COLUMNS} FROM messages WHERE id = ANY($1::bigint[])", [ids]).to_a
       rows.sort_by { |row| ids.index(row['id']) }
+    end
+
+    # What Search needs to know about the table it searches.
+    def table = 'messages'
+
+    def conditions(params, lists: nil, since: nil, before: nil, from: nil, include_notifications: false)
+      sql = []
+      sql << "list = ANY($#{params.push(lists).size}::text[])" if lists
+      sql << "date >= $#{params.push(since).size}" if since
+      sql << "date < $#{params.push(before).size}" if before
+      if from
+        n = params.push("%#{from.gsub(/[\\%_]/) { |c| "\\#{c}" }}%").size
+        sql << "(from_name ILIKE $#{n} OR from_address ILIKE $#{n})"
+      end
+      sql << 'NOT notification' unless include_notifications
+      sql
+    end
+
+    def document(row)
+      Text.passage(row['subject'], row['body'])
     end
 
     def ref(id)
