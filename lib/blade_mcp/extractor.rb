@@ -29,7 +29,7 @@ module BladeMcp
       You read posts from the Ruby mailing lists, comments on bugs.ruby-lang.org and the notes of the Ruby developers' meetings, and record what Yukihiro Matsumoto (matz), the creator of Ruby, said about the design of Ruby and its standard library.
 
       Record a statement for each point where matz, in the target:
-      - accepts or rejects a proposal or change (accepted, rejected)
+      - accepts or rejects a proposal or change that Ruby programmers or C extension authors would notice (accepted, rejected)
       - settles how a feature behaves (design), or what something is named, including names he turns down (naming)
       - sets a policy on releases, compatibility, licensing or process (policy)
       - gives a view or a concern about a feature without settling it (opinion)
@@ -37,7 +37,13 @@ module BladeMcp
       - states what a proposal needs before he would accept it (condition)
       - states a design value that reaches beyond the case at hand (principle)
 
-      Do not record merging or committing a patch, bug analysis, plain questions, release schedules, or anything said by someone other than matz. When the target was written by someone else, record only what it reports matz said or decided, such as meeting notes.
+      Do not record merging or committing a patch, bug analysis, plain questions, release schedules, or anything said by someone other than matz. Do not record either:
+      - implementation details that neither Ruby programmers nor C extension authors can see, such as refactoring, data structures or performance work inside the interpreter, or build warnings. Saying yes or no to such a patch is not a statement either.
+      - who gets commit access or maintains what, including permission to commit a patch
+      - a description of how something works now that carries no judgment. When matz gives a reason the current behavior is right, record that as design.
+      - hearsay with no occasion, such as someone recalling that matz said something somewhere. A report that names where he said it, such as a meeting or a comment, is recordable.
+
+      When the target was written by someone else, record only what it reports matz said or decided, such as meeting notes.
 
       Use the context only to understand what the target refers to. Write topic, summary and rationale in English, and leave rationale empty when the target gives no reason. Copy quote verbatim from the target in its original language. List in features the Ruby classes, modules, methods, syntax or subsystems the statement is about, spelled as Ruby spells them, such as Ractor, YJIT, Ruby::Box, Hash#fetch or refinements. Call record_statements exactly once, with an empty list when the target holds nothing to record.
     TEXT
