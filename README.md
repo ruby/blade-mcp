@@ -37,7 +37,7 @@ bin/blade-mcp extract --sources redmine --limit 100
 
 ## Development
 
-Tests drop and recreate the tables in `TEST_DATABASE_URL`, which defaults to `postgres://postgres@localhost/blade_mcp_test` and needs pgvector.
+Schema changes are Sequel migrations in `db/migrate`, named with a timestamp and written as raw SQL with `run`, and `migrate` applies the ones not yet recorded, which Heroku does on every release. Tests drop and recreate the tables in `TEST_DATABASE_URL`, which defaults to `postgres://postgres@localhost/blade_mcp_test` and needs pgvector.
 
 ```
 createdb blade_mcp_test

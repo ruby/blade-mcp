@@ -13,8 +13,8 @@ require_relative '../lib/blade_mcp/redmine'
 require_relative '../lib/blade_mcp/vault'
 
 BladeMcp::DB.current.exec('SET client_min_messages = warning')
-BladeMcp::DB.current.exec('DROP TABLE IF EXISTS statements, attachments, messages, redmine_notes, sync_state')
-BladeMcp::DB.migrate(BladeMcp::DB.current)
+BladeMcp::DB.current.exec('DROP TABLE IF EXISTS statements, attachments, messages, redmine_notes, sync_state, schema_migrations')
+BladeMcp::DB.migrate
 
 module BladeMcp
   class TestCase < Minitest::Test

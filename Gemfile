@@ -11,6 +11,7 @@ gem 'nkf'
 gem 'pg'
 gem 'puma'
 gem 'rexml'
+gem 'sequel'
 gem 'sinatra'
 
 group :test do

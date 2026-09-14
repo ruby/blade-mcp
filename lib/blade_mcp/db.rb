@@ -4,7 +4,7 @@ require 'pg'
 
 module BladeMcp
   module DB
-    SCHEMA = File.expand_path('../../db/schema.sql', __dir__).freeze
+    MIGRATIONS = File.expand_path('../../db/migrate', __dir__).freeze
 
     module_function
 
@@ -22,8 +22,12 @@ module BladeMcp
       Thread.current[:blade_mcp_db] = conn || connect
     end
 
-    def migrate(conn)
-      conn.exec(File.read(SCHEMA))
+    # Applies the migrations not yet recorded in schema_migrations. Sequel is
+    # loaded here only, so the web process does not carry it.
+    def migrate(url = ENV.fetch('DATABASE_URL'))
+      require 'sequel'
+      Sequel.extension :migration
+      Sequel.connect(url) { |db| Sequel::Migrator.run(db, MIGRATIONS) }
     end
 
     def vector(values)

@@ -14,7 +14,7 @@ usage = <<~TEXT
   Usage: blade-mcp COMMAND [options]
 
   Commands:
-    migrate          Create the tables and indexes in DATABASE_URL
+    migrate          Apply the migrations in db/migrate that DATABASE_URL has not had yet
     import           Import every message of the given lists from the vault
     import-redmine   Import comments by or about matz from the Redmine database in BUGS_DATABASE_URL
     update           Import new messages, sync bugs.ruby-lang.org comments, extract statements and embed what is new
@@ -70,7 +70,7 @@ end
 
 case command
 when 'migrate'
-  BladeMcp::DB.migrate(conn)
+  BladeMcp::DB.migrate
 when 'import', 'update'
   importer = BladeMcp::Importer.new(BladeMcp::Store.new(conn), BladeMcp::Vault.new,
                                     concurrency: options.fetch(:concurrency, 8))
