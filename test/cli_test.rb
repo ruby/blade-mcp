@@ -17,6 +17,12 @@ class CLITest < Minitest::Test
                  output
   end
 
+  def test_import_redmine_needs_the_redmine_database
+    output, status = Open3.capture2e({'BUGS_DATABASE_URL' => nil}, RbConfig.ruby, BIN, 'import-redmine')
+    refute status.success?
+    assert_match 'BUGS_DATABASE_URL is not set', output
+  end
+
   def test_prints_usage_without_a_command
     output, status = run_cli
     refute status.success?

@@ -29,6 +29,28 @@ CREATE INDEX IF NOT EXISTS messages_parent_id ON messages (parent_id);
 CREATE INDEX IF NOT EXISTS messages_tsv ON messages USING gin (tsv);
 CREATE INDEX IF NOT EXISTS messages_embedding ON messages USING hnsw (embedding vector_cosine_ops);
 
+-- Comments on public bugs.ruby-lang.org issues written by matz or naming him
+CREATE TABLE IF NOT EXISTS redmine_notes (
+  journal_id integer PRIMARY KEY,
+  issue_id integer NOT NULL,
+  note_number integer NOT NULL,
+  project text NOT NULL,
+  tracker text NOT NULL,
+  issue_subject text NOT NULL,
+  issue_description text,
+  author_name text,
+  by_matz boolean NOT NULL,
+  created_on timestamptz NOT NULL,
+  notes text NOT NULL,
+  previous_author text,
+  previous_notes text
+);
+
+CREATE TABLE IF NOT EXISTS sync_state (
+  name text PRIMARY KEY,
+  value text NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS attachments (
   message_id bigint NOT NULL REFERENCES messages (id) ON DELETE CASCADE,
   position integer NOT NULL,
