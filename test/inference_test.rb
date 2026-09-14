@@ -114,6 +114,20 @@ class InferenceTest < Minitest::Test
     end
   end
 
+  def test_chat_requests_start_an_interval_apart
+    call = {choices: [{delta: {tool_calls: [{index: 0, function: {arguments: '{}'}}]}, index: 0}]}
+    slept = []
+    serve(*Array.new(3) { [200, events(call)] }) do |url|
+      client = BladeMcp::Inference::Chat.new(url, 'secret', 'claude-opus-4-8')
+      client.define_singleton_method(:sleep) { |seconds| slept << seconds }
+      3.times { client.call_tool('system', 'user', {function: {name: 'record'}}) }
+    end
+    assert_equal 2, slept.size
+    interval = BladeMcp::Inference::Chat::INTERVAL
+    assert_in_delta interval, slept[0], 0.5
+    assert_in_delta 2 * interval, slept[1], 0.5
+  end
+
   def test_chat_without_a_tool_call_is_an_error
     body = events({choices: [{delta: {content: 'I refuse.'}, index: 0}]}, {choices: [{delta: {}, finish_reason: 'stop', index: 0}]})
     serve([200, body]) do |url|

@@ -131,12 +131,22 @@ module BladeMcp
 
     class Chat < Client
       READ_TIMEOUT = 300
+      # Heroku allows 50 chat requests a minute. Threads that go over it all
+      # get a 429 and wait a minute, which halves the throughput, so requests
+      # start at most this often across the threads sharing a client.
+      INTERVAL = 60.0 / 48
 
       def self.from_env(env = ENV)
         super('INFERENCE', 'claude-opus-4-8', env)
       end
 
       attr_reader :model
+
+      def initialize(...)
+        super
+        @pace = Mutex.new
+        @next_start = 0.0
+      end
 
       # Makes the model call the given tool once and returns its arguments and
       # the token usage. The response is streamed, because Heroku answers a
@@ -149,6 +159,7 @@ module BladeMcp
         }
         arguments = +''
         finish_reason = usage = nil
+        pace
         stream('/v1/chat/completions', payload) do |event|
           choice = event.dig('choices', 0) || {}
           choice.dig('delta', 'tool_calls')&.each { |call| arguments << call.dig('function', 'arguments').to_s }
@@ -159,6 +170,18 @@ module BladeMcp
         [JSON.parse(arguments), usage]
       rescue JSON::ParserError => e
         raise Error, "unreadable tool arguments: #{e.message}"
+      end
+
+      private
+
+      def pace
+        wait = @pace.synchronize do
+          now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+          start = [@next_start, now].max
+          @next_start = start + INTERVAL
+          start - now
+        end
+        sleep(wait) if wait.positive?
       end
     end
   end
