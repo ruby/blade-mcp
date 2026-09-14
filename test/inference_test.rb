@@ -83,9 +83,16 @@ class InferenceTest < Minitest::Test
     assert_equal ['localhost:12345', ['192.168.1.1/']], requests[1].last.values_at('query', 'documents')
   end
 
-  def test_chat_forces_the_tool_and_returns_its_arguments
-    body = JSON.generate(choices: [{message: {tool_calls: [{function: {name: 'record', arguments: '{"items":[1]}'}}]}}],
-                         usage: {total_tokens: 42})
+  # A stream shaped like the one Heroku sends.
+  def events(*chunks)
+    "#{chunks.map { |chunk| "event:message\ndata:#{JSON.generate(chunk)}\n\n" }.join}event:done\ndata:[DONE]\n\n"
+  end
+
+  def test_chat_forces_the_tool_and_joins_the_streamed_arguments
+    call = ->(arguments, head = {}) { {choices: [{delta: {tool_calls: [{index: 0, **head, function: {arguments:}}]}, index: 0}]} }
+    body = events({choices: [{delta: {role: 'assistant'}, index: 0}]}, call.('', id: 'tooluse_1'), call.('{"items"'),
+                  call.(':[1]}'), {choices: [{delta: {}, finish_reason: 'tool_calls', index: 0}]},
+                  {choices: [{delta: {}, index: 0}], usage: {total_tokens: 42}})
     tool = {type: 'function', function: {name: 'record', parameters: {type: 'object'}}}
     requests = serve([200, body]) do |url|
       client = BladeMcp::Inference::Chat.new(url, 'secret', 'claude-opus-4-8')
@@ -93,17 +100,35 @@ class InferenceTest < Minitest::Test
     end
     head, payload = requests.first
     assert_match %r{\APOST /v1/chat/completions }, head
+    assert payload['stream']
     assert_equal({'type' => 'function', 'function' => {'name' => 'record'}}, payload['tool_choice'])
     assert_equal [{'role' => 'system', 'content' => 'system'}, {'role' => 'user', 'content' => 'see localhost:3000/'}],
                  payload['messages']
   end
 
+  def test_errors_in_a_successful_response_are_errors
+    serve([200, JSON.generate(error: {message: 'Request timed out'})]) do |url|
+      client = BladeMcp::Inference::Embedding.new(url, 'secret', 'cohere-embed-v4')
+      error = assert_raises(BladeMcp::Inference::Error) { client.embed(%w[a], input_type: 'search_document') }
+      assert_match 'Request timed out', error.message
+    end
+  end
+
   def test_chat_without_a_tool_call_is_an_error
-    body = JSON.generate(choices: [{message: {content: 'I refuse.'}, finish_reason: 'stop'}])
+    body = events({choices: [{delta: {content: 'I refuse.'}, index: 0}]}, {choices: [{delta: {}, finish_reason: 'stop', index: 0}]})
     serve([200, body]) do |url|
       client = BladeMcp::Inference::Chat.new(url, 'secret', 'claude-opus-4-8')
       error = assert_raises(BladeMcp::Inference::Error) { client.call_tool('system', 'user', {function: {name: 'record'}}) }
       assert_match 'finish_reason stop', error.message
+    end
+  end
+
+  def test_errors_in_a_stream_are_errors
+    body = events({error: {message: 'Request timed out'}}).gsub("\n", "\r\n")
+    serve([200, body]) do |url|
+      client = BladeMcp::Inference::Chat.new(url, 'secret', 'claude-opus-4-8')
+      error = assert_raises(BladeMcp::Inference::Error) { client.call_tool('system', 'user', {function: {name: 'record'}}) }
+      assert_match 'Request timed out', error.message
     end
   end
 

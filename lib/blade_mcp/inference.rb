@@ -49,26 +49,50 @@ module BladeMcp
         text.gsub(URL_SCHEME, '')
       end
 
-      # A 429 is not retried here. The limits are per minute, and a search
-      # request should fall back to full-text rather than stall that long.
       def post(path, payload)
-        RETRIES.times do |attempt|
-          response = http_post(path, payload)
-          return JSON.parse(response.body) if response.is_a?(Net::HTTPSuccess)
-          message = "#{path} returned #{response.code}: #{response.body.to_s[0, 200]}"
-          if response.is_a?(Net::HTTPTooManyRequests)
-            raise RateLimited.new(message, Integer(response['Retry-After'], exception: false))
+        data = request(path, payload) { |response| JSON.parse(response.body) }
+        raise Error, "#{path} failed: #{data['error']}" if data['error']
+        data
+      end
+
+      # Yields the parsed data line of each server-sent event.
+      def stream(path, payload)
+        request(path, payload.merge(stream: true)) do |response|
+          buffer = +''
+          response.read_body do |chunk|
+            buffer << chunk
+            while (line = buffer.slice!(/\A.*\n/))
+              data = line.chomp[/\Adata:\s*(.+)/, 1]
+              next if data.nil? || data == '[DONE]'
+              event = JSON.parse(data)
+              raise Error, "#{path} failed: #{event['error']}" if event['error']
+              yield event
+            end
           end
-          raise Blocked, "#{path} returned 403" if response.is_a?(Net::HTTPForbidden)
-          raise Error, message unless response.is_a?(Net::HTTPServerError) && attempt < RETRIES - 1
-          sleep 2**attempt
         end
       end
 
-      def http_post(path, payload)
+      # Returns what the block makes of a successful response. A 429 is not
+      # retried here. The limits are per minute, and a search request should
+      # fall back to full-text rather than stall that long.
+      def request(path, payload)
         uri = URI("#{@url}#{path}")
-        Net::HTTP.start(uri.hostname, uri.port, use_ssl: uri.scheme == 'https', read_timeout: self.class::READ_TIMEOUT) do |http|
-          http.post(uri.request_uri, JSON.generate(payload), 'Content-Type' => 'application/json', 'Authorization' => "Bearer #{@key}")
+        body = JSON.generate(payload)
+        RETRIES.times do |attempt|
+          Net::HTTP.start(uri.hostname, uri.port, use_ssl: uri.scheme == 'https', read_timeout: self.class::READ_TIMEOUT) do |http|
+            post = Net::HTTP::Post.new(uri.request_uri, 'Content-Type' => 'application/json', 'Authorization' => "Bearer #{@key}")
+            post.body = body
+            http.request(post) do |response|
+              return yield(response) if response.is_a?(Net::HTTPSuccess)
+              message = "#{path} returned #{response.code}: #{response.body.to_s[0, 200]}"
+              if response.is_a?(Net::HTTPTooManyRequests)
+                raise RateLimited.new(message, Integer(response['Retry-After'], exception: false))
+              end
+              raise Blocked, "#{path} returned 403" if response.is_a?(Net::HTTPForbidden)
+              raise Error, message unless response.is_a?(Net::HTTPServerError) && attempt < RETRIES - 1
+            end
+          end
+          sleep 2**attempt
         end
       rescue *NETWORK_ERRORS => e
         raise Error, "#{path}: #{e.class}: #{e.message}"
@@ -115,17 +139,24 @@ module BladeMcp
       attr_reader :model
 
       # Makes the model call the given tool once and returns its arguments and
-      # the token usage.
+      # the token usage. The response is streamed, because Heroku answers a
+      # request that takes long to generate with a timeout error.
       def call_tool(system, user, tool, max_tokens: 8000)
         payload = {
           model: @model, max_completion_tokens: max_tokens,
           messages: [{role: 'system', content: system}, {role: 'user', content: defuse(user)}],
           tools: [tool], tool_choice: {type: 'function', function: {name: tool.dig(:function, :name)}}
         }
-        data = post('/v1/chat/completions', payload)
-        call = data.dig('choices', 0, 'message', 'tool_calls', 0)
-        raise Error, "no tool call, finish_reason #{data.dig('choices', 0, 'finish_reason')}" unless call
-        [JSON.parse(call.dig('function', 'arguments')), data['usage']]
+        arguments = +''
+        finish_reason = usage = nil
+        stream('/v1/chat/completions', payload) do |event|
+          choice = event.dig('choices', 0) || {}
+          choice.dig('delta', 'tool_calls')&.each { |call| arguments << call.dig('function', 'arguments').to_s }
+          finish_reason ||= choice['finish_reason']
+          usage ||= event['usage']
+        end
+        raise Error, "no tool call, finish_reason #{finish_reason}" if arguments.empty?
+        [JSON.parse(arguments), usage]
       rescue JSON::ParserError => e
         raise Error, "unreadable tool arguments: #{e.message}"
       end
