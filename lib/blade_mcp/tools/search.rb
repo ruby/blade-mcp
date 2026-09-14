@@ -17,8 +17,7 @@ module BladeMcp
         properties: {
           query: {type: 'string', description: 'Words to search for'},
           lists: {type: 'array', items: {type: 'string', enum: LISTS}, description: 'Only these lists'},
-          date_from: {type: 'string', description: 'Earliest date, YYYY-MM-DD in UTC'},
-          date_to: {type: 'string', description: 'Latest date, YYYY-MM-DD in UTC, inclusive'},
+          **DATES,
           from: {
             type: 'string',
             description: 'Only mails whose sender name or address contains this, ignoring case. Addresses have their ' \
@@ -38,8 +37,7 @@ module BladeMcp
       def self.call(query:, server_context:, lists: nil, date_from: nil, date_to: nil, from: nil,
                     include_notifications: false, limit: 10)
         return error_response('query must not be empty') if query.strip.empty?
-        since = utc_date(date_from)
-        before = utc_date(date_to)&.+(86_400)
+        since, before = date_range(date_from, date_to)
         rows = server_context[:search].call(query, lists:, since:, before:, from:, include_notifications:,
                                                    limit: limit.clamp(1, MAX_LIMIT))
         words = Bigram.words(query)
@@ -49,12 +47,6 @@ module BladeMcp
         json_response(results:)
       rescue Date::Error
         error_response('date_from and date_to must be YYYY-MM-DD')
-      end
-
-      def self.utc_date(value)
-        return unless value
-        date = Date.iso8601(value)
-        Time.utc(date.year, date.month, date.day)
       end
     end
   end

@@ -29,5 +29,10 @@ module BladeMcp
     def vector(values)
       "[#{values.join(',')}]"
     end
+
+    # A LIKE pattern for values that contain text as written.
+    def contains(text)
+      "%#{text.gsub(/[\\%_]/) { |c| "\\#{c}" }}%"
+    end
   end
 end

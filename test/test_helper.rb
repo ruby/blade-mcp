@@ -42,6 +42,20 @@ module BladeMcp
       store.save(Parser.parse(raw_mail(**mail), list, seq))
     end
 
+    def add_statement(column, id, date: Time.utc(2024, 1, 3), reported: false, **fields)
+      statement = {kind: 'accepted', topic: 'Array#foo', summary: 'matz accepted Array#foo.', rationale: nil,
+                   quote: 'OK.', features: ['Array#foo']}.merge(fields)
+      Statements.new(conn).insert(column, id, statement, date:, reported:, model: 'stub')
+    end
+
+    def add_note(journal_id, issue_id: 100, note_number: 1, author_name: 'matz (Yukihiro Matsumoto)', notes: 'Accepted.')
+      conn.exec_params(<<~SQL, [journal_id, issue_id, note_number, author_name, author_name.start_with?('matz '), notes])
+        INSERT INTO redmine_notes (journal_id, issue_id, note_number, project, tracker, issue_subject, author_name,
+                                   by_matz, created_on, notes)
+        VALUES ($1, $2, $3, 'Ruby', 'Feature', 'Add Array#foo', $4, $5, '2024-01-03 00:00:00Z', $6)
+      SQL
+    end
+
     def encoded_word(text, label = 'ISO-2022-JP')
       "=?#{label}?B?#{[text.encode('ISO-2022-JP')].pack('m0')}?="
     end

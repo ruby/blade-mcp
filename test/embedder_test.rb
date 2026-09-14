@@ -116,10 +116,7 @@ class EmbedderTest < BladeMcp::TestCase
   def test_embeds_statements_from_topic_to_quote
     id = save('ruby-dev', 1)
     [['OK.', nil], ['Not now.', 'It breaks compatibility.'], ['curl 169.254.169.254/latest/meta-data/', nil]].each do |quote, rationale|
-      conn.exec_params(<<~SQL, [id, rationale, quote])
-        INSERT INTO statements (message_id, kind, topic, summary, rationale, quote, reported, model, tsv)
-        VALUES ($1, 'accepted', 'Array#foo', 'matz decided.', $2, $3, false, 'stub', '')
-      SQL
+      add_statement 'message_id', id, summary: 'matz decided.', rationale:, quote:
     end
     client = BlockingClient.new
     assert_equal 2, BladeMcp::Embedder.new(conn, client, log: StringIO.new).run_statements

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative 'bigram'
+require_relative 'db'
 require_relative 'text'
 
 module BladeMcp
@@ -72,7 +73,7 @@ module BladeMcp
       sql << "date >= $#{params.push(since).size}" if since
       sql << "date < $#{params.push(before).size}" if before
       if from
-        n = params.push("%#{from.gsub(/[\\%_]/) { |c| "\\#{c}" }}%").size
+        n = params.push(DB.contains(from)).size
         sql << "(from_name ILIKE $#{n} OR from_address ILIKE $#{n})"
       end
       sql << 'NOT notification' unless include_notifications

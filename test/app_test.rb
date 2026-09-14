@@ -44,12 +44,19 @@ class AppTest < BladeMcp::TestCase
                               \x00\x01
                               --b--
                             MIME
-    save 'ruby-dev', 30001, subject: '[ruby-dev:30001] Re: [Ruby master Bug#2345] File.exists?',
-                            date: 'Sun, 10 Dec 2006 10:00:00 +0900',
-                            headers: headers.merge('Message-ID' => '<reply@msgid-secret.example>',
-                                                   'In-Reply-To' => '<root@msgid-secret.example>'),
-                            body: "Fixed.\n"
+    reply = save 'ruby-dev', 30001, subject: '[ruby-dev:30001] Re: [Ruby master Bug#2345] File.exists?',
+                                    date: 'Sun, 10 Dec 2006 10:00:00 +0900',
+                                    headers: headers.merge('Message-ID' => '<reply@msgid-secret.example>',
+                                                           'In-Reply-To' => '<root@msgid-secret.example>'),
+                                    body: "Fixed.\n"
     store.resolve_parents
+    add_statement 'message_id', reply, date: Time.utc(2006, 12, 10, 1), kind: 'rejected', topic: 'File.exists?',
+                                       summary: 'matz kept File.exists? deprecated.', rationale: 'exist? reads better.',
+                                       quote: 'Fixed.', features: %w[File.exists?]
+    add_note 7, issue_id: 17391, note_number: 4, author_name: 'mame (Yusuke Endoh)', notes: 'matz: remove File.exists?'
+    add_statement 'journal_id', 7, reported: true, kind: 'accepted', topic: 'Removal of File.exists?',
+                                   summary: 'matz accepted removing File.exists?.', quote: 'matz: remove File.exists?',
+                                   features: %w[File.exists?]
   end
 
   def mcp(method, params = {}, token: TOKEN)
@@ -88,7 +95,7 @@ class AppTest < BladeMcp::TestCase
     assert_match 'get_thread', result['instructions']
     mcp('tools/list')
     tools = JSON.parse(last_response.body).dig('result', 'tools')
-    assert_equal %w[get_message get_thread search], tools.map { _1['name'] }.sort
+    assert_equal %w[get_message get_thread matz_timeline search search_matz], tools.map { _1['name'] }.sort
     assert tools.all? { _1.dig('annotations', 'readOnlyHint') }
   end
 
@@ -146,18 +153,50 @@ class AppTest < BladeMcp::TestCase
     refute thread['truncated']
   end
 
+  def test_search_matz
+    results = call_tool('search_matz', {query: 'File.exists'})['results']
+    assert_equal [{'kind' => 'rejected', 'topic' => 'File.exists?', 'summary' => 'matz kept File.exists? deprecated.',
+                   'rationale' => 'exist? reads better.', 'quote' => 'Fixed.', 'features' => ['File.exists?'],
+                   'date' => '2006-12-10T01:00:00Z', 'ref' => '[ruby-dev:30001]'},
+                  {'kind' => 'accepted', 'topic' => 'Removal of File.exists?',
+                   'summary' => 'matz accepted removing File.exists?.', 'quote' => 'matz: remove File.exists?',
+                   'features' => ['File.exists?'], 'date' => '2024-01-03T00:00:00Z', 'issue' => 17391, 'note' => 4,
+                   'reported_by' => 'mame (Yusuke Endoh)'}],
+                 results.sort_by { _1['date'] }
+    assert_equal ['accepted'], call_tool('search_matz', {query: 'File.exists', kinds: ['accepted']})['results'].map { _1['kind'] }
+    assert_equal ['rejected'], call_tool('search_matz', {query: 'File.exists', include_reported: false})['results'].map { _1['kind'] }
+    assert_equal ['rejected'], call_tool('search_matz', {query: 'File.exists', date_to: '2006-12-10'})['results'].map { _1['kind'] }
+  end
+
+  def test_matz_timeline
+    timeline = call_tool('matz_timeline', {feature: 'file.exists', limit: 1})
+    assert_equal 2, timeline['total']
+    assert_equal ['[ruby-dev:30001]'], timeline['statements'].map { _1['ref'] }
+    assert_equal ['accepted'], call_tool('matz_timeline', {feature: 'File', date_from: '2007-01-01'})['statements'].map { _1['kind'] }
+  end
+
+  def test_matz_timeline_needs_a_feature
+    mcp('tools/call', {name: 'matz_timeline', arguments: {feature: ' '}})
+    result = JSON.parse(last_response.body)['result']
+    assert result['isError']
+    assert_equal 'feature must not be empty', result.dig('content', 0, 'text')
+  end
+
   def test_responses_never_carry_private_headers
     bodies = [
       call_tool('search', {query: 'File.exists'}),
       call_tool('get_message', {ref: '[ruby-dev:30000]'}),
       call_tool('get_message', {ref: '[ruby-dev:30001]'}),
-      call_tool('get_thread', {ref: '[ruby-dev:30000]'})
+      call_tool('get_thread', {ref: '[ruby-dev:30000]'}),
+      call_tool('search_matz', {query: 'File.exists'}),
+      call_tool('matz_timeline', {feature: 'File'})
     ].map { JSON.generate(_1) }
     PRIVATE.each do |value|
       bodies.each { |body| refute_includes body, value }
     end
     expected = %w[ref from date subject issue snippet parent replies body attachments root messages truncated depth
-                  results filename size content]
+                  results filename size content kind topic summary rationale quote features note reported_by total
+                  statements]
     keys = bodies.flat_map { |body| collect_keys(JSON.parse(body)) }.uniq
     assert_empty keys - expected
   end

@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require_relative 'bigram'
 require_relative 'inference'
 require_relative 'patience'
 require_relative 'statements'
@@ -199,16 +198,9 @@ module BladeMcp
     def store(source, item, statements)
       column, table, key = source == 'ml' ? %w[message_id messages id] : %w[journal_id redmine_notes journal_id]
       @conn.exec_params("DELETE FROM statements WHERE #{column} = $1", [item[:id]])
-      statements.each do |s|
-        params = [item[:id], item[:date], s[:kind], s[:topic], s[:summary], s[:rationale], s[:quote], s[:features],
-                  item[:reported], @client.model, Bigram.expand([s[:topic], *s[:features]].join(' ')),
-                  Bigram.expand([s[:summary], s[:rationale]].compact.join(' ')), Bigram.expand(s[:quote])]
-        @conn.exec_params(<<~SQL, params)
-          INSERT INTO statements (#{column}, date, kind, topic, summary, rationale, quote, features, reported, model, tsv)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text[], $9, $10,
-                  setweight(to_tsvector('simple', $11), 'A') || setweight(to_tsvector('simple', $12), 'B') ||
-                  setweight(to_tsvector('simple', $13), 'C'))
-        SQL
+      corpus = Statements.new(@conn)
+      statements.each do |statement|
+        corpus.insert(column, item[:id], statement, date: item[:date], reported: item[:reported], model: @client.model)
       end
       @conn.exec_params("UPDATE #{table} SET statements_extracted_at = now() WHERE #{key} = $1", [item[:id]])
     end

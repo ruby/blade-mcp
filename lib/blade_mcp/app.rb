@@ -15,6 +15,11 @@ module BladeMcp
       `get_message`, and see the discussion around it with `get_thread`. Messages are identified by refs such as
       [ruby-dev:30000]. Redmine notification mails keep only their subject and issue number; read those issues with
       the bugs.ruby-lang.org MCP server (`get_issue`), which also takes the issue numbers reported here.
+
+      What matz said about the design of Ruby is also kept as statements, each with a verbatim quote and its source:
+      `search_matz` finds them by words or meaning, and `matz_timeline` lists those on one feature in date order. To
+      judge how matz would see a new proposal, search with the proposal, weigh the statements found, and cite their
+      quotes and sources. A statement is evidence of what he said then, not a ruling on the proposal.
     TEXT
 
     # rack-protection guards cookie sessions of browser apps. Its Origin check
@@ -42,9 +47,11 @@ module BladeMcp
 
     def mcp
       store = Store.new(DB.current)
+      statements = Statements.new(DB.current)
       search = BladeMcp::Search.new(store, embedder: settings.embedder, reranker: settings.reranker)
+      matz_search = BladeMcp::Search.new(statements, embedder: settings.embedder, reranker: settings.reranker)
       server = MCP::Server.new(name: 'blade-mcp', version: VERSION, instructions: INSTRUCTIONS, tools: Tools.all,
-                               server_context: {store:, search:})
+                               server_context: {store:, search:, statements:, matz_search:})
       # A bearer token is required, so a rebinding page cannot call it anyway.
       transport = MCP::Server::Transports::StreamableHTTPTransport.new(
         server, stateless: true, enable_json_response: true, dns_rebinding_protection: false
