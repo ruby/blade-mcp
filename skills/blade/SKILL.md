@@ -9,7 +9,7 @@ The blade MCP server (`https://blade.ruby-lang.org/mcp`, bearer token shared amo
 
 ## Who decides
 
-It depends on the part of Ruby, as [doc/maintainers.md](https://github.com/ruby/ruby/blob/master/doc/maintainers.md) in ruby/ruby lists. Look the part up there before deciding where a question goes.
+It depends on the part of Ruby, as [doc/maintainers.md](https://github.com/ruby/ruby/blob/master/doc/maintainers.md) in ruby/ruby lists. Before saying where a question goes, read the file, from a ruby/ruby checkout or from `https://raw.githubusercontent.com/ruby/ruby/master/doc/maintainers.md`, and find the entry for the part. Do not go by memory, since maintainers change and some parts are maintained by matz himself.
 
 - Language core features and core classes are matz's. The evaluator has a maintainer of its own.
 - A module maintainer (a standard library, an extension, or a default gem such as RubyGems or Bundler) decides the features of that part, respecting the discussion on ruby-core and ruby-dev. Some entries add that an API change needs matz's approval, and matz maintains a few libraries himself.
