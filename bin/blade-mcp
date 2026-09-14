@@ -5,6 +5,7 @@ require 'bundler/setup'
 require 'optparse'
 require_relative '../lib/blade_mcp'
 require_relative '../lib/blade_mcp/embedder'
+require_relative '../lib/blade_mcp/extractor'
 require_relative '../lib/blade_mcp/importer'
 require_relative '../lib/blade_mcp/redmine'
 require_relative '../lib/blade_mcp/vault'
@@ -18,6 +19,7 @@ usage = <<~TEXT
     import-redmine   Import comments by or about matz from the Redmine database in BUGS_DATABASE_URL
     update           Import and embed new messages, then sync bugs.ruby-lang.org comments
     embed            Compute embeddings for messages that have none
+    extract          Have the chat model record what matz said in his mails and in bugs.ruby-lang.org comments
 
   Options:
 TEXT
@@ -31,8 +33,13 @@ parser = OptionParser.new do |opts|
     raise OptionParser::InvalidArgument, "#{unknown.join(',')} (known: #{BladeMcp::LISTS.join(',')})" if unknown.any?
     options[:lists] = lists
   end
-  opts.on('--limit N', Integer, 'Stop after N messages per list (import) or in total (embed)') { |n| options[:limit] = n }
-  opts.on('--concurrency N', Integer, 'Parallel vault downloads (default 8)') { |n| options[:concurrency] = n }
+  opts.on('--sources SOURCE,...', Array, "Sources to extract from (default: #{BladeMcp::Extractor::SOURCES.join(',')})") do |sources|
+    unknown = sources - BladeMcp::Extractor::SOURCES
+    raise OptionParser::InvalidArgument, "#{unknown.join(',')} (known: #{BladeMcp::Extractor::SOURCES.join(',')})" if unknown.any?
+    options[:sources] = sources
+  end
+  opts.on('--limit N', Integer, 'Stop after N messages per list (import), in total (embed) or per source (extract)') { |n| options[:limit] = n }
+  opts.on('--concurrency N', Integer, 'Parallel vault downloads (default 8) or model calls (default 4)') { |n| options[:concurrency] = n }
 end
 
 begin
@@ -42,7 +49,7 @@ rescue OptionParser::ParseError => e
 end
 
 command = ARGV.shift
-abort parser.help unless %w[migrate import import-redmine update embed].include?(command)
+abort parser.help unless %w[migrate import import-redmine update embed extract].include?(command)
 abort 'blade-mcp: BUGS_DATABASE_URL is not set' if command == 'import-redmine' && !ENV['BUGS_DATABASE_URL']
 
 conn = BladeMcp::DB.connect
@@ -69,4 +76,8 @@ when 'import-redmine'
   BladeMcp::Redmine.new(conn).import(BladeMcp::DB.connect(ENV.fetch('BUGS_DATABASE_URL')))
 when 'embed'
   embed(conn, options[:lists], options[:limit])
+when 'extract'
+  client = BladeMcp::Inference::Chat.from_env or abort 'blade-mcp: INFERENCE_URL and INFERENCE_KEY are not set'
+  BladeMcp::Extractor.new(conn, client, concurrency: options.fetch(:concurrency, 4))
+                     .run(sources: options.fetch(:sources, BladeMcp::Extractor::SOURCES), limit: options[:limit])
 end

@@ -7,18 +7,19 @@ ENV['DATABASE_URL'] = ENV.fetch('TEST_DATABASE_URL', 'postgres://postgres@localh
 require 'minitest/autorun'
 require_relative '../lib/blade_mcp'
 require_relative '../lib/blade_mcp/embedder'
+require_relative '../lib/blade_mcp/extractor'
 require_relative '../lib/blade_mcp/importer'
 require_relative '../lib/blade_mcp/redmine'
 require_relative '../lib/blade_mcp/vault'
 
 BladeMcp::DB.current.exec('SET client_min_messages = warning')
-BladeMcp::DB.current.exec('DROP TABLE IF EXISTS attachments, messages, redmine_notes, sync_state')
+BladeMcp::DB.current.exec('DROP TABLE IF EXISTS statements, attachments, messages, redmine_notes, sync_state')
 BladeMcp::DB.migrate(BladeMcp::DB.current)
 
 module BladeMcp
   class TestCase < Minitest::Test
     def setup
-      conn.exec('TRUNCATE attachments, messages RESTART IDENTITY')
+      conn.exec('TRUNCATE statements, attachments, messages, redmine_notes RESTART IDENTITY')
     end
 
     def conn

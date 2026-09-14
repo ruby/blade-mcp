@@ -51,6 +51,31 @@ CREATE TABLE IF NOT EXISTS sync_state (
   value text NOT NULL
 );
 
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS statements_extracted_at timestamptz;
+ALTER TABLE redmine_notes ADD COLUMN IF NOT EXISTS statements_extracted_at timestamptz;
+
+-- What matz said in one mail or comment, as read by the extraction model
+CREATE TABLE IF NOT EXISTS statements (
+  id bigserial PRIMARY KEY,
+  message_id bigint REFERENCES messages (id) ON DELETE CASCADE,
+  journal_id integer REFERENCES redmine_notes (journal_id) ON DELETE CASCADE,
+  date timestamptz,
+  kind text NOT NULL,
+  topic text NOT NULL,
+  summary text NOT NULL,
+  rationale text,
+  quote text NOT NULL,
+  features text[] NOT NULL DEFAULT '{}',
+  reported boolean NOT NULL,
+  model text NOT NULL,
+  tsv tsvector NOT NULL,
+  CHECK ((message_id IS NULL) <> (journal_id IS NULL))
+);
+
+CREATE INDEX IF NOT EXISTS statements_message_id ON statements (message_id);
+CREATE INDEX IF NOT EXISTS statements_journal_id ON statements (journal_id);
+CREATE INDEX IF NOT EXISTS statements_tsv ON statements USING gin (tsv);
+
 CREATE TABLE IF NOT EXISTS attachments (
   message_id bigint NOT NULL REFERENCES messages (id) ON DELETE CASCADE,
   position integer NOT NULL,

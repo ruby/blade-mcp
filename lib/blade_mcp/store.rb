@@ -35,7 +35,9 @@ module BladeMcp
           embedding = CASE WHEN (messages.subject, messages.body) IS NOT DISTINCT FROM (EXCLUDED.subject, EXCLUDED.body)
                            THEN messages.embedding END,
           embedding_skipped = messages.embedding_skipped AND
-                              (messages.subject, messages.body) IS NOT DISTINCT FROM (EXCLUDED.subject, EXCLUDED.body)
+                              (messages.subject, messages.body) IS NOT DISTINCT FROM (EXCLUDED.subject, EXCLUDED.body),
+          statements_extracted_at = CASE WHEN (messages.subject, messages.body) IS NOT DISTINCT FROM (EXCLUDED.subject, EXCLUDED.body)
+                                         THEN messages.statements_extracted_at END
         RETURNING id
       SQL
       @conn.exec_params('DELETE FROM attachments WHERE message_id = $1', [id])

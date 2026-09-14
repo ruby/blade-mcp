@@ -5,7 +5,7 @@ require 'net/http'
 
 module BladeMcp
   # Clients for Heroku Managed Inference. The add-on attached with the
-  # EMBEDDING and RERANK aliases sets <ALIAS>_URL and <ALIAS>_KEY.
+  # INFERENCE, EMBEDDING and RERANK aliases sets <ALIAS>_URL and <ALIAS>_KEY.
   module Inference
     class Error < StandardError; end
 
@@ -24,6 +24,7 @@ module BladeMcp
 
     class Client
       RETRIES = 3
+      READ_TIMEOUT = 60
       NETWORK_ERRORS = [IOError, SystemCallError, Net::OpenTimeout, Net::ReadTimeout, OpenSSL::SSL::SSLError].freeze
       # Code in the archive is full of URLs such as http://localhost:3000/ and
       # http://192.168.1.1/, which CloudFront blocks as SSRF. Without the
@@ -65,8 +66,10 @@ module BladeMcp
       end
 
       def http_post(path, payload)
-        Net::HTTP.post(URI("#{@url}#{path}"), JSON.generate(payload),
-                       'Content-Type' => 'application/json', 'Authorization' => "Bearer #{@key}")
+        uri = URI("#{@url}#{path}")
+        Net::HTTP.start(uri.hostname, uri.port, use_ssl: uri.scheme == 'https', read_timeout: self.class::READ_TIMEOUT) do |http|
+          http.post(uri.request_uri, JSON.generate(payload), 'Content-Type' => 'application/json', 'Authorization' => "Bearer #{@key}")
+        end
       rescue *NETWORK_ERRORS => e
         raise Error, "#{path}: #{e.class}: #{e.message}"
       end
@@ -99,6 +102,32 @@ module BladeMcp
         data = post('/v1/rerank', {model: @model, query: defuse(query), documents: documents.map { |document| defuse(document) },
                                    top_n: documents.size})
         data.fetch('results').map { |item| [item['index'], item['relevance_score']] }
+      end
+    end
+
+    class Chat < Client
+      READ_TIMEOUT = 300
+
+      def self.from_env(env = ENV)
+        super('INFERENCE', 'claude-opus-4-8', env)
+      end
+
+      attr_reader :model
+
+      # Makes the model call the given tool once and returns its arguments and
+      # the token usage.
+      def call_tool(system, user, tool, max_tokens: 8000)
+        payload = {
+          model: @model, max_completion_tokens: max_tokens,
+          messages: [{role: 'system', content: system}, {role: 'user', content: defuse(user)}],
+          tools: [tool], tool_choice: {type: 'function', function: {name: tool.dig(:function, :name)}}
+        }
+        data = post('/v1/chat/completions', payload)
+        call = data.dig('choices', 0, 'message', 'tool_calls', 0)
+        raise Error, "no tool call, finish_reason #{data.dig('choices', 0, 'finish_reason')}" unless call
+        [JSON.parse(call.dig('function', 'arguments')), data['usage']]
+      rescue JSON::ParserError => e
+        raise Error, "unreadable tool arguments: #{e.message}"
       end
     end
   end

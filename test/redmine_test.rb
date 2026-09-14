@@ -36,7 +36,7 @@ class RedmineTest < BladeMcp::TestCase
 
   def setup
     super
-    conn.exec('TRUNCATE redmine_notes, sync_state')
+    conn.exec('TRUNCATE sync_state')
   end
 
   def bugs
@@ -65,6 +65,16 @@ class RedmineTest < BladeMcp::TestCase
                                 'previous_notes')
     assert_equal [5, 5, false, 'Accepted. Go ahead.'], meeting.values_at('journal_id', 'note_number', 'by_matz', 'previous_notes')
     refute_nil conn.exec("SELECT value FROM sync_state WHERE name = 'redmine_checked_at'").first
+  end
+
+  def test_reimport_reads_an_edited_comment_again
+    redmine = BladeMcp::Redmine.new(conn, log: StringIO.new)
+    redmine.import(bugs)
+    conn.exec('UPDATE redmine_notes SET statements_extracted_at = now()')
+    bugs.exec("UPDATE journals SET notes = 'Accepted, with the name foo.' WHERE id = 3")
+    redmine.import(bugs)
+    assert_equal [[3, false], [5, true]],
+                 conn.exec('SELECT journal_id, statements_extracted_at IS NOT NULL FROM redmine_notes ORDER BY journal_id').values
   end
 
   # Serves JSON for the given paths and records the query strings requested.

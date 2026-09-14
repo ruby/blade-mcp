@@ -92,7 +92,8 @@ module BladeMcp
                    created_on notes previous_author previous_notes]
       @conn.exec_params(<<~SQL, note.values_at(*columns))
         INSERT INTO redmine_notes (#{columns.join(', ')}) VALUES (#{columns.each_index.map { |i| "$#{i + 1}" }.join(', ')})
-        ON CONFLICT (journal_id) DO UPDATE SET #{columns.drop(1).map { |c| "#{c} = EXCLUDED.#{c}" }.join(', ')}
+        ON CONFLICT (journal_id) DO UPDATE SET #{columns.drop(1).map { |c| "#{c} = EXCLUDED.#{c}" }.join(', ')},
+          statements_extracted_at = CASE WHEN redmine_notes.notes = EXCLUDED.notes THEN redmine_notes.statements_extracted_at END
       SQL
     end
 
