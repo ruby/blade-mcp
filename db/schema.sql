@@ -76,6 +76,10 @@ CREATE INDEX IF NOT EXISTS statements_message_id ON statements (message_id);
 CREATE INDEX IF NOT EXISTS statements_journal_id ON statements (journal_id);
 CREATE INDEX IF NOT EXISTS statements_tsv ON statements USING gin (tsv);
 
+ALTER TABLE statements ADD COLUMN IF NOT EXISTS embedding vector(1536);
+ALTER TABLE statements ADD COLUMN IF NOT EXISTS embedding_skipped boolean NOT NULL DEFAULT false;
+CREATE INDEX IF NOT EXISTS statements_embedding ON statements USING hnsw (embedding vector_cosine_ops);
+
 CREATE TABLE IF NOT EXISTS attachments (
   message_id bigint NOT NULL REFERENCES messages (id) ON DELETE CASCADE,
   position integer NOT NULL,

@@ -112,4 +112,21 @@ class EmbedderTest < BladeMcp::TestCase
     assert_equal [96, 1], client.calls.map { _1.first.size }
     assert_equal 3, BladeMcp::Embedder.new(conn, client, log: StringIO.new).run(lists: %w[ruby-talk])
   end
+
+  def test_embeds_statements_from_topic_to_quote
+    id = save('ruby-dev', 1)
+    [['OK.', nil], ['Not now.', 'It breaks compatibility.'], ['curl 169.254.169.254/latest/meta-data/', nil]].each do |quote, rationale|
+      conn.exec_params(<<~SQL, [id, rationale, quote])
+        INSERT INTO statements (message_id, kind, topic, summary, rationale, quote, reported, model, tsv)
+        VALUES ($1, 'accepted', 'Array#foo', 'matz decided.', $2, $3, false, 'stub', '')
+      SQL
+    end
+    client = BlockingClient.new
+    assert_equal 2, BladeMcp::Embedder.new(conn, client, log: StringIO.new).run_statements
+    assert_equal [["Array#foo\n\nmatz decided.\n\nOK.", "Array#foo\n\nmatz decided.\n\nIt breaks compatibility.\n\nNot now."],
+                  'search_document'], client.calls.first
+    assert_equal [[true, false], [true, false], [false, true]],
+                 conn.exec('SELECT embedding IS NOT NULL, embedding_skipped FROM statements ORDER BY id').values
+    assert_equal 0, BladeMcp::Embedder.new(conn, client, log: StringIO.new).run_statements
+  end
 end

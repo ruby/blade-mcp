@@ -3,6 +3,7 @@
 require_relative 'bigram'
 require_relative 'inference'
 require_relative 'patience'
+require_relative 'statements'
 require_relative 'text'
 
 module BladeMcp
@@ -13,7 +14,6 @@ module BladeMcp
     include Patience
 
     SOURCES = %w[ml redmine].freeze
-    KINDS = %w[accepted rejected design naming policy opinion undecided condition principle].freeze
     BATCH = 20
     CONTEXT_CHARS = 3000
     TARGET_CHARS = 12_000
@@ -52,7 +52,7 @@ module BladeMcp
               items: {
                 type: 'object',
                 properties: {
-                  kind: {type: 'string', enum: KINDS},
+                  kind: {type: 'string', enum: Statements::KINDS},
                   topic: {type: 'string', description: 'What the statement is about, as a short noun phrase'},
                   summary: {type: 'string', description: 'What matz said, in one to three sentences'},
                   rationale: {type: 'string', description: 'The reason matz gave, or an empty string'},
@@ -187,7 +187,7 @@ module BladeMcp
 
     def statements(arguments)
       Array(arguments['statements']).filter_map do |statement|
-        next unless statement.is_a?(Hash) && KINDS.include?(statement['kind'])
+        next unless statement.is_a?(Hash) && Statements::KINDS.include?(statement['kind'])
         topic, summary, rationale, quote = statement.values_at('topic', 'summary', 'rationale', 'quote').map { |s| s.to_s.strip }
         next if topic.empty? || summary.empty? || quote.empty?
         features = Array(statement['features']).map { |f| f.to_s.strip }.reject(&:empty?).uniq

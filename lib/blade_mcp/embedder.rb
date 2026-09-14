@@ -3,12 +3,13 @@
 require_relative 'db'
 require_relative 'inference'
 require_relative 'patience'
+require_relative 'statements'
 require_relative 'text'
 
 module BladeMcp
-  # Fills in embeddings for messages that have none yet. Redmine
-  # notifications are never embedded, and ruby-talk stays out of the default
-  # lists until it is decided to add it with --lists.
+  # Fills in embeddings for messages and statements that have none yet.
+  # Redmine notifications are never embedded, and ruby-talk stays out of the
+  # default lists until it is decided to add it with --lists.
   class Embedder
     include Patience
 
@@ -21,47 +22,62 @@ module BladeMcp
     end
 
     def run(lists: LISTS, limit: nil)
-      done = 0
-      embedded = 0
-      loop do
-        size = [Inference::Embedding::MAX_INPUTS, limit && limit - done].compact.min
-        break unless size.positive?
-        rows = @conn.exec_params(<<~SQL, [lists, size]).to_a
+      backfill('messages', limit) do |size|
+        rows = @conn.exec_params(<<~SQL, [lists, size])
           SELECT id, list, seq, subject, body FROM messages
           WHERE embedding IS NULL AND NOT embedding_skipped AND NOT notification AND list = ANY($1::text[])
           ORDER BY id
           LIMIT $2
         SQL
-        break if rows.empty?
-        skipped = []
-        saved = store(rows, skipped)
-        # A whole batch turned away says more about the client than about the
-        # messages, so none of them is marked.
-        raise Inference::Blocked, 'every message in a batch was blocked' if saved.zero? && rows.size > 1
-        skipped.each do |row|
-          @conn.exec_params('UPDATE messages SET embedding_skipped = true WHERE id = $1', [row['id']])
-          @log.puts "#{row['list']}:#{row['seq']} was blocked, left without an embedding"
-        end
-        done += rows.size
-        embedded += saved
-        @log.puts "embedded #{embedded} messages"
+        rows.map { |row| row.merge('label' => "#{row['list']}:#{row['seq']}", 'text' => Text.passage(row['subject'], row['body'])) }
       end
-      embedded
+    end
+
+    def run_statements(limit: nil)
+      backfill('statements', limit) do |size|
+        rows = @conn.exec_params(<<~SQL, [size])
+          SELECT id, topic, summary, rationale, quote FROM statements
+          WHERE embedding IS NULL AND NOT embedding_skipped
+          ORDER BY id
+          LIMIT $1
+        SQL
+        rows.map { |row| row.merge('label' => "statement #{row['id']}", 'text' => Statements.document(row)) }
+      end
     end
 
     private
 
-    # Only the offending message is blocked, so a blocked batch is halved
-    # until it stands alone.
-    def store(rows, skipped)
-      texts = rows.map do |row|
-        text = Text.passage(row['subject'], row['body'])
-        text.empty? ? '(empty)' : text
+    def backfill(table, limit)
+      done = 0
+      embedded = 0
+      loop do
+        size = [Inference::Embedding::MAX_INPUTS, limit && limit - done].compact.min
+        break unless size.positive?
+        rows = yield(size)
+        break if rows.empty?
+        skipped = []
+        saved = store(table, rows, skipped)
+        # A whole batch turned away says more about the client than about the
+        # rows, so none of them is marked.
+        raise Inference::Blocked, "every row in a batch of #{table} was blocked" if saved.zero? && rows.size > 1
+        skipped.each do |row|
+          @conn.exec_params("UPDATE #{table} SET embedding_skipped = true WHERE id = $1", [row['id']])
+          @log.puts "#{row['label']} was blocked, left without an embedding"
+        end
+        done += rows.size
+        embedded += saved
+        @log.puts "embedded #{embedded} #{table}"
       end
-      vectors = embed(texts)
+      embedded
+    end
+
+    # Only the offending row is blocked, so a blocked batch is halved until it
+    # stands alone.
+    def store(table, rows, skipped)
+      vectors = embed(rows.map { |row| row['text'].empty? ? '(empty)' : row['text'] })
       @conn.transaction do
         rows.zip(vectors) do |row, vector|
-          @conn.exec_params('UPDATE messages SET embedding = $2::vector WHERE id = $1', [row['id'], DB.vector(vector)])
+          @conn.exec_params("UPDATE #{table} SET embedding = $2::vector WHERE id = $1", [row['id'], DB.vector(vector)])
         end
       end
       rows.size
@@ -70,7 +86,7 @@ module BladeMcp
         skipped.concat(rows)
         0
       else
-        rows.each_slice(rows.size.ceildiv(2)).sum { |half| store(half, skipped) }
+        rows.each_slice(rows.size.ceildiv(2)).sum { |half| store(table, half, skipped) }
       end
     end
 

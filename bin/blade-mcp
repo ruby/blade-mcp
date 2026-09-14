@@ -18,7 +18,7 @@ usage = <<~TEXT
     import           Import every message of the given lists from the vault
     import-redmine   Import comments by or about matz from the Redmine database in BUGS_DATABASE_URL
     update           Import and embed new messages, then sync bugs.ruby-lang.org comments
-    embed            Compute embeddings for messages that have none
+    embed            Compute embeddings for messages and statements that have none
     extract          Have the chat model record what matz said in his mails and in bugs.ruby-lang.org comments
 
   Options:
@@ -58,7 +58,9 @@ $stdout.sync = true
 def embed(conn, lists, limit)
   client = BladeMcp::Inference::Embedding.from_env
   return puts 'EMBEDDING_URL and EMBEDDING_KEY are not set, skipping embeddings' unless client
-  BladeMcp::Embedder.new(conn, client).run(lists: lists || BladeMcp::Embedder::LISTS, limit:)
+  embedder = BladeMcp::Embedder.new(conn, client)
+  embedder.run(lists: lists || BladeMcp::Embedder::LISTS, limit:)
+  embedder.run_statements(limit:)
 end
 
 case command
