@@ -14,15 +14,14 @@ require_relative '../lib/blade_mcp/redmine'
 require_relative '../lib/blade_mcp/vault'
 require 'socket'
 
-BladeMcp::DB.current.exec('SET client_min_messages = warning')
-BladeMcp::DB.current.exec('DROP TABLE IF EXISTS statements, attachments, messages, redmine_notes, meeting_items, ' \
-                          'sync_state, schema_migrations')
+TABLES = %i[statements attachments messages redmine_notes meeting_items sync_state].freeze
+BladeMcp::DB.current.drop_table?(*TABLES, :schema_migrations)
 BladeMcp::DB.migrate
 
 module BladeMcp
   class TestCase < Minitest::Test
     def setup
-      conn.exec('TRUNCATE statements, attachments, messages, redmine_notes, meeting_items, sync_state RESTART IDENTITY')
+      db.from(*TABLES).truncate(restart: true)
     end
 
     # Serves the body given for each path, calling it with the request target
@@ -51,12 +50,12 @@ module BladeMcp
       thread&.join
     end
 
-    def conn
+    def db
       DB.current
     end
 
     def store
-      @store ||= Store.new(conn)
+      @store ||= Store.new(db)
     end
 
     def raw_mail(subject: 'hello', from: 'Yukihiro Matsumoto <matz@ruby-lang.org>',
@@ -74,22 +73,18 @@ module BladeMcp
     def add_statement(column, id, date: Time.utc(2024, 1, 3), reported: false, **fields)
       statement = {kind: 'accepted', topic: 'Array#foo', summary: 'matz accepted Array#foo.', rationale: nil,
                    quote: 'OK.', features: ['Array#foo']}.merge(fields)
-      Statements.new(conn).insert(column, id, statement, date:, reported:, model: 'stub')
+      Statements.new(db).insert(column, id, statement, date:, reported:, model: 'stub')
     end
 
     def add_note(journal_id, issue_id: 100, note_number: 1, author_name: 'matz (Yukihiro Matsumoto)', notes: 'Accepted.')
-      conn.exec_params(<<~SQL, [journal_id, issue_id, note_number, author_name, author_name.start_with?('matz '), notes])
-        INSERT INTO redmine_notes (journal_id, issue_id, note_number, project, tracker, issue_subject, author_name,
-                                   by_matz, created_on, notes)
-        VALUES ($1, $2, $3, 'Ruby', 'Feature', 'Add Array#foo', $4, $5, '2024-01-03 00:00:00Z', $6)
-      SQL
+      db[:redmine_notes].insert(journal_id:, issue_id:, note_number:, project: 'Ruby', tracker: 'Feature',
+                                issue_subject: 'Add Array#foo', author_name:, by_matz: author_name.start_with?('matz '),
+                                created_on: Time.utc(2024, 1, 3), notes:)
     end
 
     def add_meeting_item(path: '2024/DevMeeting-2024-02-01.md', heading: '[[Feature #100]](https://bugs.ruby-lang.org/issues/100) Add Array#foo (mame)',
                          body: "* matz: accepted.\n", issue_id: 100)
-      conn.exec_params(<<~SQL, [path, heading, body, issue_id, MeetingLog.date(path)]).getvalue(0, 0)
-        INSERT INTO meeting_items (path, position, date, heading, body, issue_id) VALUES ($1, 0, $5, $2, $3, $4) RETURNING id
-      SQL
+      db[:meeting_items].insert(path:, position: 0, date: MeetingLog.date(path), heading:, body:, issue_id:)
     end
 
     def encoded_word(text, label = 'ISO-2022-JP')

@@ -3,17 +3,16 @@
 require 'test_helper'
 
 class DBTest < Minitest::Test
-  def test_current_reconnects_after_the_connection_is_closed
-    conn = BladeMcp::DB.current
-    conn.close
-    refute_same conn, BladeMcp::DB.current
-    assert_equal 1, BladeMcp::DB.current.exec('SELECT 1').getvalue(0, 0)
+  def test_a_connection_the_server_dropped_is_replaced
+    db = BladeMcp::DB.current
+    db.synchronize(&:close)
+    assert_equal 1, db.get(1)
   end
 
   def test_the_baseline_takes_a_database_made_before_migrations_were_tracked
-    BladeMcp::DB.current.exec("DELETE FROM schema_migrations WHERE filename LIKE '%\\_baseline.rb'")
+    BladeMcp::DB.current[:schema_migrations].where(Sequel.like(:filename, '%\_baseline.rb')).delete
     2.times { BladeMcp::DB.migrate }
     assert_equal Dir.glob('*.rb', base: BladeMcp::DB::MIGRATIONS).sort,
-                 BladeMcp::DB.current.exec('SELECT filename FROM schema_migrations ORDER BY filename').column_values(0)
+                 BladeMcp::DB.current[:schema_migrations].order(:filename).select_map(:filename)
   end
 end

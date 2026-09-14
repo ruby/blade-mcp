@@ -42,7 +42,7 @@ module BladeMcp
                                                    limit: limit.clamp(1, MAX_LIMIT))
         words = Bigram.words(query)
         results = rows.map do |row|
-          summary(row).merge(snippet: (Text.snippet(row['body'], words) if row['body'])).compact
+          summary(row).merge(snippet: (Text.snippet(row[:body], words) if row[:body])).compact
         end
         json_response(results:)
       rescue Date::Error

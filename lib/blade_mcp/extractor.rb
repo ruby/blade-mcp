@@ -23,7 +23,10 @@ module BladeMcp
     QUOTE_CHARS = 500
     # Addresses are stored with their domain masked, and another matz@ once
     # posted as "Eye Matz".
-    MATZ_MAILS = "m.from_address = 'matz@...' AND coalesce(m.from_name, '') IN ('Yukihiro Matsumoto', 'matz', 'matz@...', '')"
+    MATZ_MAILS = {
+      Sequel[:m][:from_address] => 'matz@...',
+      Sequel.function(:coalesce, Sequel[:m][:from_name], '') => ['Yukihiro Matsumoto', 'matz', 'matz@...', '']
+    }.freeze
     # A reply quoting one of matz's comments would have it recorded a second
     # time, since his comments are read on their own. Telling the model to
     # skip such quotes did not stop it, so they are cut before it reads.
@@ -80,8 +83,8 @@ module BladeMcp
       }
     }.freeze
 
-    def initialize(conn, client, concurrency: 4, log: $stdout)
-      @conn = conn
+    def initialize(db, client, concurrency: 4, log: $stdout)
+      @db = db
       @client = client
       @concurrency = concurrency
       @log = log
@@ -104,7 +107,7 @@ module BladeMcp
         items = candidates(source, size, failed)
         break if items.empty?
         results = read(items)
-        @conn.transaction do
+        @db.transaction do
           results.each do |item, statements, usage|
             unless statements
               failed << item[:id]
@@ -122,64 +125,61 @@ module BladeMcp
     end
 
     def candidates(source, size, failed)
-      if source == 'ml'
-        @conn.exec_params(<<~SQL, [size, failed]).map { |row| mail_item(row) }
-          SELECT m.id, m.list, m.seq, m.date, m.subject, m.body, p.list AS parent_list, p.seq AS parent_seq,
-                 p.from_name AS parent_from, p.subject AS parent_subject, p.body AS parent_body
-          FROM messages m LEFT JOIN messages p ON p.id = m.parent_id
-          WHERE m.statements_extracted_at IS NULL AND NOT m.notification AND #{MATZ_MAILS} AND m.id <> ALL($2::bigint[])
-          ORDER BY m.id
-          LIMIT $1
-        SQL
-      elsif source == 'redmine'
-        @conn.exec_params(<<~SQL, [size, failed]).map { |row| note_item(row) }
-          SELECT * FROM redmine_notes
-          WHERE statements_extracted_at IS NULL AND journal_id <> ALL($2::integer[])
-          ORDER BY journal_id
-          LIMIT $1
-        SQL
+      case source
+      when 'ml'
+        m = Sequel[:m]
+        p = Sequel[:p]
+        @db.from(Sequel[:messages].as(:m))
+           .left_join(Sequel[:messages].as(:p), p[:id] => m[:parent_id])
+           .select(m[:id], m[:list], m[:seq], m[:date], m[:subject], m[:body], p[:list].as(:parent_list),
+                   p[:seq].as(:parent_seq), p[:from_name].as(:parent_from), p[:subject].as(:parent_subject),
+                   p[:body].as(:parent_body))
+           .where(m[:statements_extracted_at] => nil, m[:notification] => false)
+           .where(MATZ_MAILS)
+           .exclude(m[:id] => failed)
+           .order(m[:id]).limit(size)
+           .map { |row| mail_item(row) }
+      when 'redmine'
+        @db[:redmine_notes].where(statements_extracted_at: nil).exclude(journal_id: failed)
+                           .order(:journal_id).limit(size).map { |row| note_item(row) }
       else
-        @conn.exec_params(<<~SQL, [size, failed]).map { |row| meeting_item(row) }
-          SELECT * FROM meeting_items
-          WHERE statements_extracted_at IS NULL AND id <> ALL($2::bigint[])
-          ORDER BY id
-          LIMIT $1
-        SQL
+        @db[:meeting_items].where(statements_extracted_at: nil).exclude(id: failed)
+                           .order(:id).limit(size).map { |row| meeting_item(row) }
       end
     end
 
     def mail_item(row)
       context =
-        if row['parent_seq']
-          "Parent post [#{row['parent_list']}:#{row['parent_seq']}] by #{row['parent_from']}\n" \
-            "Subject: #{row['parent_subject']}\n\n#{Text.without_quotes(row['parent_body'])[0, CONTEXT_CHARS]}"
+        if row[:parent_seq]
+          "Parent post [#{row[:parent_list]}:#{row[:parent_seq]}] by #{row[:parent_from]}\n" \
+            "Subject: #{row[:parent_subject]}\n\n#{Text.without_quotes(row[:parent_body])[0, CONTEXT_CHARS]}"
         else
           'No parent post was found.'
         end
-      target = "Post [#{row['list']}:#{row['seq']}] by Yukihiro Matsumoto (matz) on #{row['date']&.getutc&.strftime('%F')}\n" \
-               "Subject: #{row['subject']}\n\n#{row['body'].to_s[0, TARGET_CHARS]}"
-      {id: row['id'], date: row['date'], reported: false, prompt: prompt(context, target)}
+      target = "Post [#{row[:list]}:#{row[:seq]}] by Yukihiro Matsumoto (matz) on #{row[:date]&.getutc&.strftime('%F')}\n" \
+               "Subject: #{row[:subject]}\n\n#{row[:body].to_s[0, TARGET_CHARS]}"
+      {id: row[:id], date: row[:date], reported: false, prompt: prompt(context, target)}
     end
 
     def note_item(row)
-      context = "Issue ##{row['issue_id']} (#{row['tracker']}): #{row['issue_subject']}\n\n" \
-                "#{row['issue_description'].to_s[0, CONTEXT_CHARS]}"
-      if row['previous_notes']
-        context += "\n\nPrevious comment by #{row['previous_author']}:\n#{row['previous_notes'][0, CONTEXT_CHARS]}"
+      context = "Issue ##{row[:issue_id]} (#{row[:tracker]}): #{row[:issue_subject]}\n\n" \
+                "#{row[:issue_description].to_s[0, CONTEXT_CHARS]}"
+      if row[:previous_notes]
+        context += "\n\nPrevious comment by #{row[:previous_author]}:\n#{row[:previous_notes][0, CONTEXT_CHARS]}"
       end
-      notes = row['by_matz'] ? row['notes'] : row['notes'].gsub(MATZ_QUOTE, '')
-      target = "Comment #note-#{row['note_number']} on issue ##{row['issue_id']} by #{row['author_name']} " \
-               "on #{row['created_on'].getutc.strftime('%F')}\n\n#{notes[0, TARGET_CHARS]}"
-      {id: row['journal_id'], date: row['created_on'], reported: !row['by_matz'], prompt: prompt(context, target)}
+      notes = row[:by_matz] ? row[:notes] : row[:notes].gsub(MATZ_QUOTE, '')
+      target = "Comment #note-#{row[:note_number]} on issue ##{row[:issue_id]} by #{row[:author_name]} " \
+               "on #{row[:created_on].getutc.strftime('%F')}\n\n#{notes[0, TARGET_CHARS]}"
+      {id: row[:journal_id], date: row[:created_on], reported: !row[:by_matz], prompt: prompt(context, target)}
     end
 
     def meeting_item(row)
-      date = row['date']
+      date = row[:date]
       context = "Notes of the Ruby developers' meeting on #{date.iso8601}, written by the attendees and kept as " \
-                "#{row['path']} in ruby/dev-meeting-log. The meeting is where proposals get matz's agreement."
-      heading = row['heading'].empty? ? 'the part of the notes before any heading' : "the agenda item \"#{row['heading']}\""
-      target = "From #{heading}\n\n#{row['body'][0, MEETING_CHARS]}"
-      {id: row['id'], date: Time.utc(date.year, date.month, date.day), reported: true, prompt: prompt(context, target)}
+                "#{row[:path]} in ruby/dev-meeting-log. The meeting is where proposals get matz's agreement."
+      heading = row[:heading].empty? ? 'the part of the notes before any heading' : "the agenda item \"#{row[:heading]}\""
+      target = "From #{heading}\n\n#{row[:body][0, MEETING_CHARS]}"
+      {id: row[:id], date: Time.utc(date.year, date.month, date.day), reported: true, prompt: prompt(context, target)}
     end
 
     def prompt(context, target)
@@ -226,14 +226,14 @@ module BladeMcp
     end
 
     def store(source, item, statements)
-      column, table, key = {'ml' => %w[message_id messages id], 'redmine' => %w[journal_id redmine_notes journal_id],
-                            'meeting' => %w[meeting_item_id meeting_items id]}.fetch(source)
-      @conn.exec_params("DELETE FROM statements WHERE #{column} = $1", [item[:id]])
-      corpus = Statements.new(@conn)
+      column, table, key = {'ml' => %i[message_id messages id], 'redmine' => %i[journal_id redmine_notes journal_id],
+                            'meeting' => %i[meeting_item_id meeting_items id]}.fetch(source)
+      @db[:statements].where(column => item[:id]).delete
+      corpus = Statements.new(@db)
       statements.each do |statement|
         corpus.insert(column, item[:id], statement, date: item[:date], reported: item[:reported], model: @client.model)
       end
-      @conn.exec_params("UPDATE #{table} SET statements_extracted_at = now() WHERE #{key} = $1", [item[:id]])
+      @db[table].where(key => item[:id]).update(statements_extracted_at: Sequel::CURRENT_TIMESTAMP)
     end
   end
 end

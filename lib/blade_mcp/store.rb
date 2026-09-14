@@ -6,102 +6,86 @@ require_relative 'text'
 
 module BladeMcp
   class Store
-    COLUMNS = 'id, list, seq, parent_id, from_name, from_address, date, subject, body, issue, notification'
+    COLUMNS = %i[id list seq parent_id from_name from_address date subject body issue notification].freeze
     # Keeps long patches under the 1MB tsvector limit; positions beyond
     # 16383 are clamped by Postgres anyway.
     INDEX_LIMIT = 100_000
     THREAD_LIMIT = 500
 
-    attr_reader :conn
+    attr_reader :db
 
-    def initialize(conn)
-      @conn = conn
+    def initialize(db)
+      @db = db
     end
 
     def save(message)
-      params = [
-        message.list, message.seq, message.msgid, message.reply_msgids, message.cited_list, message.cited_seq,
-        message.from_name, message.from_address, message.date, message.subject, message.body, message.issue,
-        message.notification, Bigram.expand(message.subject), Bigram.expand(message.body.to_s[0, INDEX_LIMIT])
-      ]
-      id = @conn.exec_params(<<~SQL, params).getvalue(0, 0)
-        INSERT INTO messages (list, seq, msgid, reply_msgids, cited_list, cited_seq, from_name, from_address,
-                              date, subject, body, issue, notification, tsv)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-                setweight(to_tsvector('simple', $14), 'A') || setweight(to_tsvector('simple', $15), 'D'))
-        ON CONFLICT (list, seq) DO UPDATE SET
-          msgid = EXCLUDED.msgid, reply_msgids = EXCLUDED.reply_msgids, cited_list = EXCLUDED.cited_list,
-          cited_seq = EXCLUDED.cited_seq, parent_id = NULL, from_name = EXCLUDED.from_name,
-          from_address = EXCLUDED.from_address, date = EXCLUDED.date, subject = EXCLUDED.subject,
-          body = EXCLUDED.body, issue = EXCLUDED.issue, notification = EXCLUDED.notification, tsv = EXCLUDED.tsv,
-          embedding = CASE WHEN (messages.subject, messages.body) IS NOT DISTINCT FROM (EXCLUDED.subject, EXCLUDED.body)
-                           THEN messages.embedding END,
-          embedding_skipped = messages.embedding_skipped AND
-                              (messages.subject, messages.body) IS NOT DISTINCT FROM (EXCLUDED.subject, EXCLUDED.body),
-          statements_extracted_at = CASE WHEN (messages.subject, messages.body) IS NOT DISTINCT FROM (EXCLUDED.subject, EXCLUDED.body)
-                                         THEN messages.statements_extracted_at END
-        RETURNING id
-      SQL
-      @conn.exec_params('DELETE FROM attachments WHERE message_id = $1', [id])
-      message.attachments.each_with_index do |attachment, position|
-        @conn.exec_params(<<~SQL, [id, position, attachment.filename, attachment.size, attachment.content])
-          INSERT INTO attachments (message_id, position, filename, size, content) VALUES ($1, $2, $3, $4, $5)
-        SQL
-      end
+      unchanged = Sequel.lit('(messages.subject, messages.body) IS NOT DISTINCT FROM (excluded.subject, excluded.body)')
+      replaced = %i[msgid reply_msgids cited_list cited_seq from_name from_address date subject body issue notification tsv]
+      update = replaced.to_h { |column| [column, Sequel[:excluded][column]] }.merge(
+        parent_id: nil,
+        embedding: Sequel.case({unchanged => Sequel[:messages][:embedding]}, nil),
+        embedding_skipped: Sequel[:messages][:embedding_skipped] & unchanged,
+        statements_extracted_at: Sequel.case({unchanged => Sequel[:messages][:statements_extracted_at]}, nil)
+      )
+      tsv = Sequel.lit("setweight(to_tsvector('simple', ?), 'A') || setweight(to_tsvector('simple', ?), 'D')",
+                       Bigram.expand(message.subject), Bigram.expand(message.body.to_s[0, INDEX_LIMIT]))
+      id = @db[:messages].returning(:id).insert_conflict(target: %i[list seq], update:).insert(
+        list: message.list, seq: message.seq, msgid: message.msgid, reply_msgids: Sequel.pg_array(message.reply_msgids, :text),
+        cited_list: message.cited_list, cited_seq: message.cited_seq, from_name: message.from_name,
+        from_address: message.from_address, date: message.date, subject: message.subject, body: message.body,
+        issue: message.issue, notification: message.notification, tsv:
+      ).first[:id]
+      @db[:attachments].where(message_id: id).delete
+      @db[:attachments].multi_insert(message.attachments.each_with_index.map do |attachment, position|
+        {message_id: id, position:, filename: attachment.filename, size: attachment.size, content: attachment.content}
+      end)
       id
     end
 
     def max_seq(list)
-      @conn.exec_params('SELECT max(seq) FROM messages WHERE list = $1', [list]).getvalue(0, 0)
+      @db[:messages].where(list:).max(:seq)
     end
 
     def find(list, seq)
-      @conn.exec_params("SELECT #{COLUMNS} FROM messages WHERE list = $1 AND seq = $2", [list, seq]).first
+      @db[:messages].select(*COLUMNS).first(list:, seq:)
     end
 
     def rows(ids)
-      rows = @conn.exec_params("SELECT #{COLUMNS} FROM messages WHERE id = ANY($1::bigint[])", [ids]).to_a
-      rows.sort_by { |row| ids.index(row['id']) }
+      @db[:messages].select(*COLUMNS).where(id: ids).all.sort_by { |row| ids.index(row[:id]) }
     end
 
-    # What Search needs to know about the table it searches.
-    def table = 'messages'
-
-    def conditions(params, lists: nil, since: nil, before: nil, from: nil, include_notifications: false)
-      sql = []
-      sql << "list = ANY($#{params.push(lists).size}::text[])" if lists
-      sql << "date >= $#{params.push(since).size}" if since
-      sql << "date < $#{params.push(before).size}" if before
-      if from
-        n = params.push(DB.contains(from)).size
-        sql << "(from_name ILIKE $#{n} OR from_address ILIKE $#{n})"
-      end
-      sql << 'NOT notification' unless include_notifications
-      sql
+    # The messages Search ranks, narrowed by its filters.
+    def dataset(lists: nil, since: nil, before: nil, from: nil, include_notifications: false)
+      ds = @db[:messages]
+      ds = ds.where(list: lists) if lists
+      ds = ds.where(Sequel[:date] >= since) if since
+      ds = ds.where(Sequel[:date] < before) if before
+      ds = ds.where(Sequel.ilike(:from_name, DB.contains(from)) | Sequel.ilike(:from_address, DB.contains(from))) if from
+      ds = ds.where(notification: false) unless include_notifications
+      ds
     end
 
     def document(row)
-      Text.passage(row['subject'], row['body'])
+      Text.passage(row[:subject], row[:body])
     end
 
     def ref(id)
-      @conn.exec_params('SELECT list, seq FROM messages WHERE id = $1', [id]).first
+      @db[:messages].select(:list, :seq).first(id:)
     end
 
     def children(id)
-      @conn.exec_params('SELECT list, seq FROM messages WHERE parent_id = $1 ORDER BY date, list, seq', [id]).to_a
+      @db[:messages].select(:list, :seq).where(parent_id: id).order(:date, :list, :seq).all
     end
 
     def attachments(id)
-      @conn.exec_params('SELECT filename, size, content FROM attachments WHERE message_id = $1 ORDER BY position',
-                        [id]).to_a
+      @db[:attachments].select(:filename, :size, :content).where(message_id: id).order(:position).all
     end
 
     # A parent in the same list wins over one found in another list, then
     # In-Reply-To wins over References, nearest reference first. The body
     # citation is the last resort.
     def resolve_parents
-      linked = @conn.exec(<<~SQL).cmd_tuples
+      linked = @db.dataset.with_sql_update(<<~SQL)
         WITH candidates AS (
           SELECT DISTINCT ON (m.id) m.id, p.id AS parent_id
           FROM messages m
@@ -112,25 +96,26 @@ module BladeMcp
         )
         UPDATE messages SET parent_id = candidates.parent_id FROM candidates WHERE messages.id = candidates.id
       SQL
-      linked + @conn.exec(<<~SQL).cmd_tuples
-        UPDATE messages m SET parent_id = p.id
-        FROM messages p
-        WHERE m.parent_id IS NULL AND p.list = m.cited_list AND p.seq = m.cited_seq AND p.id <> m.id
-      SQL
+      reply = Sequel[:reply]
+      cited = Sequel[:cited]
+      linked + @db.from(Sequel[:messages].as(:reply), Sequel[:messages].as(:cited))
+                  .where(reply[:parent_id] => nil, cited[:list] => reply[:cited_list], cited[:seq] => reply[:cited_seq])
+                  .exclude(cited[:id] => reply[:id])
+                  .update(parent_id: cited[:id])
     end
 
     def thread(id)
-      root = @conn.exec_params(<<~SQL, [id]).getvalue(0, 0)
+      root = @db.fetch(<<~SQL, id).single_value
         WITH RECURSIVE up (id, parent_id, depth) AS (
-          SELECT id, parent_id, 0 FROM messages WHERE id = $1
+          SELECT id, parent_id, 0 FROM messages WHERE id = ?
           UNION ALL
           SELECT m.id, m.parent_id, up.depth + 1 FROM messages m JOIN up ON m.id = up.parent_id WHERE up.depth < 100
         )
         SELECT id FROM up ORDER BY depth DESC LIMIT 1
       SQL
-      @conn.exec_params(<<~SQL, [root, THREAD_LIMIT + 1]).to_a
+      @db.fetch(<<~SQL, root, THREAD_LIMIT + 1).all
         WITH RECURSIVE down (id, depth, path) AS (
-          SELECT id, 0, ARRAY[id] FROM messages WHERE id = $1
+          SELECT id, 0, ARRAY[id] FROM messages WHERE id = ?
           UNION ALL
           SELECT m.id, down.depth + 1, down.path || m.id
           FROM messages m JOIN down ON m.parent_id = down.id
@@ -142,7 +127,7 @@ module BladeMcp
         JOIN messages m ON m.id = down.id
         LEFT JOIN messages p ON p.id = m.parent_id
         ORDER BY m.date NULLS LAST, m.list, m.seq
-        LIMIT $2
+        LIMIT ?
       SQL
     end
   end

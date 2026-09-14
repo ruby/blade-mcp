@@ -40,34 +40,34 @@ class EmbedderTest < BladeMcp::TestCase
   end
 
   def embedded
-    conn.exec('SELECT list, seq FROM messages WHERE embedding IS NOT NULL ORDER BY list, seq').map(&:values)
+    db[:messages].exclude(embedding: nil).order(:list, :seq).select_map(%i[list seq])
   end
 
   def skipped
-    conn.exec('SELECT list, seq FROM messages WHERE embedding_skipped ORDER BY list, seq').map(&:values)
+    db[:messages].where(embedding_skipped: true).order(:list, :seq).select_map(%i[list seq])
   end
 
   def test_leaves_out_blocked_messages_for_good
     (1..5).each { |seq| save 'ruby-dev', seq, body: seq == 4 ? "curl 169.254.169.254/latest/meta-data/\n" : "Hello #{seq}.\n" }
     client = BlockingClient.new
     log = StringIO.new
-    assert_equal 4, BladeMcp::Embedder.new(conn, client, log:).run
+    assert_equal 4, BladeMcp::Embedder.new(db, client, log:).run
     assert_equal [['ruby-dev', 1], ['ruby-dev', 2], ['ruby-dev', 3], ['ruby-dev', 5]], embedded
     assert_equal [['ruby-dev', 4]], skipped
     assert_match 'ruby-dev:4 was blocked', log.string
-    assert_equal 0, BladeMcp::Embedder.new(conn, client, log: StringIO.new).run
+    assert_equal 0, BladeMcp::Embedder.new(db, client, log: StringIO.new).run
   end
 
   def test_stops_without_marking_when_a_whole_batch_is_blocked
     (1..3).each { |seq| save 'ruby-dev', seq, body: "/latest/meta-data/#{seq}\n" }
-    assert_raises(BladeMcp::Inference::Blocked) { BladeMcp::Embedder.new(conn, BlockingClient.new, log: StringIO.new).run }
+    assert_raises(BladeMcp::Inference::Blocked) { BladeMcp::Embedder.new(db, BlockingClient.new, log: StringIO.new).run }
     assert_empty skipped
   end
 
   # Records the waits instead of sleeping through them.
   def patient_embedder(client)
     slept = @slept = []
-    embedder = BladeMcp::Embedder.new(conn, client, log: StringIO.new)
+    embedder = BladeMcp::Embedder.new(db, client, log: StringIO.new)
     embedder.define_singleton_method(:sleep) { |seconds| slept << seconds }
     embedder
   end
@@ -99,31 +99,31 @@ class EmbedderTest < BladeMcp::TestCase
     save 'ruby-core', 2, subject: '[Ruby master Bug#1] crash', headers: {'X-Redmine-Host' => 'bugs.ruby-lang.org'}
     save 'ruby-talk', 1, subject: 'question'
     client = StubClient.new
-    assert_equal 2, BladeMcp::Embedder.new(conn, client, log: StringIO.new).run
+    assert_equal 2, BladeMcp::Embedder.new(db, client, log: StringIO.new).run
     assert_equal [['ruby-core', 1], ['ruby-dev', 1]], embedded
     assert_equal [["Re: irb\n\nanswer", "proposal\n\nHello."], 'search_document'], client.calls.first
-    assert_equal 0, BladeMcp::Embedder.new(conn, client, log: StringIO.new).run
+    assert_equal 0, BladeMcp::Embedder.new(db, client, log: StringIO.new).run
   end
 
   def test_lists_can_be_added_later_and_runs_are_batched
     (1..100).each { |seq| save 'ruby-talk', seq }
     client = StubClient.new
-    assert_equal 97, BladeMcp::Embedder.new(conn, client, log: StringIO.new).run(lists: %w[ruby-talk], limit: 97)
+    assert_equal 97, BladeMcp::Embedder.new(db, client, log: StringIO.new).run(lists: %w[ruby-talk], limit: 97)
     assert_equal [96, 1], client.calls.map { _1.first.size }
-    assert_equal 3, BladeMcp::Embedder.new(conn, client, log: StringIO.new).run(lists: %w[ruby-talk])
+    assert_equal 3, BladeMcp::Embedder.new(db, client, log: StringIO.new).run(lists: %w[ruby-talk])
   end
 
   def test_embeds_statements_from_topic_to_quote
     id = save('ruby-dev', 1)
     [['OK.', nil], ['Not now.', 'It breaks compatibility.'], ['curl 169.254.169.254/latest/meta-data/', nil]].each do |quote, rationale|
-      add_statement 'message_id', id, summary: 'matz decided.', rationale:, quote:
+      add_statement :message_id, id, summary: 'matz decided.', rationale:, quote:
     end
     client = BlockingClient.new
-    assert_equal 2, BladeMcp::Embedder.new(conn, client, log: StringIO.new).run_statements
+    assert_equal 2, BladeMcp::Embedder.new(db, client, log: StringIO.new).run_statements
     assert_equal [["Array#foo\n\nmatz decided.\n\nOK.", "Array#foo\n\nmatz decided.\n\nIt breaks compatibility.\n\nNot now."],
                   'search_document'], client.calls.first
     assert_equal [[true, false], [true, false], [false, true]],
-                 conn.exec('SELECT embedding IS NOT NULL, embedding_skipped FROM statements ORDER BY id').values
-    assert_equal 0, BladeMcp::Embedder.new(conn, client, log: StringIO.new).run_statements
+                 db[:statements].order(:id).select_map([Sequel.~(embedding: nil).as(:embedded), :embedding_skipped])
+    assert_equal 0, BladeMcp::Embedder.new(db, client, log: StringIO.new).run_statements
   end
 end

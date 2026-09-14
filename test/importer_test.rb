@@ -33,22 +33,22 @@ class ImporterTest < BladeMcp::TestCase
   end
 
   def stored
-    conn.exec('SELECT seq FROM messages ORDER BY seq').column_values(0)
+    db[:messages].order(:seq).select_map(:seq)
   end
 
   def test_imports_everything_and_links_replies
     count, = run_importer(FakeVault.new(messages(1, 2, 3)))
     assert_equal 3, count
     assert_equal [1, 2, 3], stored
-    assert_equal store.find('ruby-dev', 2)['id'], store.find('ruby-dev', 3)['parent_id']
+    assert_equal store.find('ruby-dev', 2)[:id], store.find('ruby-dev', 3)[:parent_id]
   end
 
   def test_update_only_takes_keys_above_the_last_one_stored
     run_importer(FakeVault.new(messages(1, 2)))
-    conn.exec("UPDATE messages SET subject = 'kept' WHERE seq = 2")
+    db[:messages].where(seq: 2).update(subject: 'kept')
     count, = run_importer(FakeVault.new(messages(1, 2, 3, 4)), only_new: true)
     assert_equal 2, count
-    assert_equal 'kept', store.find('ruby-dev', 2)['subject']
+    assert_equal 'kept', store.find('ruby-dev', 2)[:subject]
     assert_equal [1, 2, 3, 4], stored
   end
 

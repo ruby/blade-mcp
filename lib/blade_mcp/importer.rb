@@ -38,9 +38,10 @@ module BladeMcp
     # parsed or stored would fail the same way again, so they are skipped.
     def import(list, seqs)
       saved = fetch(list, seqs).count do |message|
-        @store.conn.transaction { @store.save(message) }
+        @store.db.transaction { @store.save(message) }
         true
-      rescue PG::DataException, PG::ProgramLimitExceeded => e
+      rescue Sequel::DatabaseError => e
+        raise unless [PG::DataException, PG::ProgramLimitExceeded].any? { |error| e.wrapped_exception.is_a?(error) }
         @log.puts "#{list}:#{message.seq} not saved: #{e.message.lines.first&.strip}"
         false
       end

@@ -7,7 +7,6 @@ class RedmineTest < BladeMcp::TestCase
   BUGS_SCHEMA = <<~SQL
     DROP SCHEMA IF EXISTS bugs_fixture CASCADE;
     CREATE SCHEMA bugs_fixture;
-    SET search_path TO bugs_fixture;
     CREATE TABLE projects (id integer PRIMARY KEY, name text, is_public boolean, status integer);
     CREATE TABLE enabled_modules (project_id integer, name text);
     CREATE TABLE trackers (id integer PRIMARY KEY, name text);
@@ -34,41 +33,36 @@ class RedmineTest < BladeMcp::TestCase
   SQL
 
   def bugs
-    @bugs ||= BladeMcp::DB.connect.tap do |bugs|
-      bugs.exec('SET client_min_messages = warning')
-      bugs.exec(BUGS_SCHEMA)
-    end
+    @bugs ||= BladeMcp::DB.connect(search_path: 'bugs_fixture').tap { |bugs| bugs.run(BUGS_SCHEMA) }
   end
 
   def teardown
-    @bugs&.exec('DROP SCHEMA bugs_fixture CASCADE')
-    @bugs&.close
+    @bugs&.run('DROP SCHEMA bugs_fixture CASCADE')
+    @bugs&.disconnect
   end
 
   def notes
-    conn.exec('SELECT * FROM redmine_notes ORDER BY journal_id').to_a
+    db[:redmine_notes].order(:journal_id).all
   end
 
   def test_import_reads_public_comments_by_or_about_matz
-    assert_equal 2, BladeMcp::Redmine.new(conn, log: StringIO.new).import(bugs)
+    assert_equal 2, BladeMcp::Redmine.new(db, log: StringIO.new).import(bugs)
     matz, meeting = notes
     assert_equal [3, 100, 3, 'Ruby master', 'Feature', 'Add Array#foo', 'I propose Array#foo.', 'matz (Yukihiro Matsumoto)',
                   true, Time.utc(2024, 1, 3), 'Accepted. Go ahead.', 'mame (Yusuke Endoh)', 'I like it.'],
-                 matz.values_at('journal_id', 'issue_id', 'note_number', 'project', 'tracker', 'issue_subject',
-                                'issue_description', 'author_name', 'by_matz', 'created_on', 'notes', 'previous_author',
-                                'previous_notes')
-    assert_equal [5, 5, false, 'Accepted. Go ahead.'], meeting.values_at('journal_id', 'note_number', 'by_matz', 'previous_notes')
-    refute_nil conn.exec("SELECT value FROM sync_state WHERE name = 'redmine_checked_at'").first
+                 matz.values_at(*BladeMcp::Redmine::COLUMNS)
+    assert_equal [5, 5, false, 'Accepted. Go ahead.'], meeting.values_at(:journal_id, :note_number, :by_matz, :previous_notes)
+    refute_nil db[:sync_state].where(name: 'redmine_checked_at').get(:value)
   end
 
   def test_reimport_reads_an_edited_comment_again
-    redmine = BladeMcp::Redmine.new(conn, log: StringIO.new)
+    redmine = BladeMcp::Redmine.new(db, log: StringIO.new)
     redmine.import(bugs)
-    conn.exec('UPDATE redmine_notes SET statements_extracted_at = now()')
-    bugs.exec("UPDATE journals SET notes = 'Accepted, with the name foo.' WHERE id = 3")
+    db[:redmine_notes].update(statements_extracted_at: Sequel::CURRENT_TIMESTAMP)
+    bugs[:journals].where(id: 3).update(notes: 'Accepted, with the name foo.')
     redmine.import(bugs)
     assert_equal [[3, false], [5, true]],
-                 conn.exec('SELECT journal_id, statements_extracted_at IS NOT NULL FROM redmine_notes ORDER BY journal_id').values
+                 db[:redmine_notes].order(:journal_id).select_map([:journal_id, Sequel.~(statements_extracted_at: nil).as(:read)])
   end
 
   def issue_json(id, journals)
@@ -77,7 +71,7 @@ class RedmineTest < BladeMcp::TestCase
   end
 
   def test_sync_fetches_issues_updated_since_the_last_check
-    conn.exec("INSERT INTO sync_state VALUES ('redmine_checked_at', '2024-02-01T01:00:00Z')")
+    db[:sync_state].insert(name: 'redmine_checked_at', value: '2024-02-01T01:00:00Z')
     journals = [
       {id: 11, user: {name: 'mame (Yusuke Endoh)'}, notes: 'Proposal looks good.', created_on: '2024-02-01T00:00:00Z'},
       {id: 12, user: {name: 'matz (Yukihiro Matsumoto)'}, notes: '', created_on: '2024-02-01T00:30:00Z'},
@@ -89,17 +83,17 @@ class RedmineTest < BladeMcp::TestCase
     routes = {'/issues.json' => ->(_) { pages.shift }, '/issues/100.json' => issue_json(100, journals),
               '/issues/101.json' => issue_json(101, [])}
     requested = serve(routes) do |url|
-      assert_equal 2, BladeMcp::Redmine.new(conn, url:, log: StringIO.new).sync
+      assert_equal 2, BladeMcp::Redmine.new(db, url:, log: StringIO.new).sync
     end
     assert_includes requested.first, 'updated_on=%3E%3D2024-02-01T00%3A00%3A00Z'
     assert_includes requested[1], 'offset=1'
     assert_equal [[13, 3, true, 'Proposal looks good.'], [14, 4, false, 'Rejected.']],
-                 notes.map { _1.values_at('journal_id', 'note_number', 'by_matz', 'previous_notes') }
-    checked_at = Time.iso8601(conn.exec("SELECT value FROM sync_state WHERE name = 'redmine_checked_at'").getvalue(0, 0))
+                 notes.map { _1.values_at(:journal_id, :note_number, :by_matz, :previous_notes) }
+    checked_at = Time.iso8601(db[:sync_state].where(name: 'redmine_checked_at').get(:value))
     assert_in_delta Time.now, checked_at, 60
   end
 
   def test_sync_needs_an_import_first
-    assert_raises(RuntimeError) { BladeMcp::Redmine.new(conn, log: StringIO.new).sync }
+    assert_raises(RuntimeError) { BladeMcp::Redmine.new(db, log: StringIO.new).sync }
   end
 end

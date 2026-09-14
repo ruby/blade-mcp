@@ -55,8 +55,8 @@ module BladeMcp
       items.reject { |_, body| body.strip.size < MIN_BODY }
     end
 
-    def initialize(conn, api: API, archive: ARCHIVE, raw: RAW, token: ENV.fetch('GITHUB_TOKEN', nil), log: $stdout)
-      @conn = conn
+    def initialize(db, api: API, archive: ARCHIVE, raw: RAW, token: ENV.fetch('GITHUB_TOKEN', nil), log: $stdout)
+      @db = db
       @api = api
       @archive = archive
       @raw = raw
@@ -72,8 +72,8 @@ module BladeMcp
         path = entry.full_name.split('/', 2)[1]
         files[path] = entry.read.force_encoding(Encoding::UTF_8) if entry.file? && path&.match?(NOTES)
       end
-      @conn.transaction do
-        @conn.exec_params('DELETE FROM meeting_items WHERE path <> ALL($1::text[])', [files.keys])
+      @db.transaction do
+        @db[:meeting_items].exclude(path: files.keys).delete
         files.each { |path, text| save(path, text) }
         checked!(commit)
       end
@@ -82,12 +82,12 @@ module BladeMcp
     end
 
     def sync
-      base = @conn.exec("SELECT value FROM sync_state WHERE name = 'meeting_log_commit'").first&.fetch('value')
+      base = @db[:sync_state].where(name: 'meeting_log_commit').get(:value)
       raise 'run import-meetings before syncing' unless base
       commit = head
       files = JSON.parse(get("#{@api}/repos/#{REPO}/compare/#{base}...#{commit}", api: true)).fetch('files')
       changed = files.select { |file| file['filename'].match?(NOTES) || file['previous_filename']&.match?(NOTES) }
-      @conn.transaction do
+      @db.transaction do
         changed.each do |file|
           delete(file['previous_filename']) if file['previous_filename']
           if file['status'] == 'removed'
@@ -108,27 +108,24 @@ module BladeMcp
     def save(path, text)
       date = self.class.date(path) or return @log.puts("#{path} has no date in its name, skipped")
       items = self.class.items(text)
+      unchanged = Sequel.&(Sequel[:meeting_items][:heading] =~ Sequel[:excluded][:heading],
+                           Sequel[:meeting_items][:body] =~ Sequel[:excluded][:body])
+      update = %i[date heading body issue_id].to_h { |column| [column, Sequel[:excluded][column]] }
+      update[:statements_extracted_at] = Sequel.case({unchanged => Sequel[:meeting_items][:statements_extracted_at]}, nil)
       items.each_with_index do |(heading, body), position|
-        @conn.exec_params(<<~SQL, [path, position, date, heading, body, heading[ISSUE, 1]&.to_i])
-          INSERT INTO meeting_items (path, position, date, heading, body, issue_id) VALUES ($1, $2, $3, $4, $5, $6)
-          ON CONFLICT (path, position) DO UPDATE SET
-            date = EXCLUDED.date, heading = EXCLUDED.heading, body = EXCLUDED.body, issue_id = EXCLUDED.issue_id,
-            statements_extracted_at = CASE WHEN (meeting_items.heading, meeting_items.body) = (EXCLUDED.heading, EXCLUDED.body)
-                                           THEN meeting_items.statements_extracted_at END
-        SQL
+        @db[:meeting_items].insert_conflict(target: %i[path position], update:)
+                           .insert(path:, position:, date:, heading:, body:, issue_id: heading[ISSUE, 1]&.to_i)
       end
-      @conn.exec_params('DELETE FROM meeting_items WHERE path = $1 AND position >= $2', [path, items.size])
+      @db[:meeting_items].where(path:).where(Sequel[:position] >= items.size).delete
     end
 
     def delete(path)
-      @conn.exec_params('DELETE FROM meeting_items WHERE path = $1', [path])
+      @db[:meeting_items].where(path:).delete
     end
 
     def checked!(commit)
-      @conn.exec_params(<<~SQL, [commit])
-        INSERT INTO sync_state (name, value) VALUES ('meeting_log_commit', $1)
-        ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value
-      SQL
+      @db[:sync_state].insert_conflict(target: :name, update: {value: Sequel[:excluded][:value]})
+                      .insert(name: 'meeting_log_commit', value: commit)
     end
 
     def head

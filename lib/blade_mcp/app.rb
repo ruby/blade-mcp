@@ -47,8 +47,9 @@ module BladeMcp
     end
 
     def mcp
-      store = Store.new(DB.current)
-      statements = Statements.new(DB.current)
+      db = DB.current
+      store = Store.new(db)
+      statements = Statements.new(db)
       search = BladeMcp::Search.new(store, embedder: settings.embedder, reranker: settings.reranker)
       matz_search = BladeMcp::Search.new(statements, embedder: settings.embedder, reranker: settings.reranker)
       server = MCP::Server.new(name: 'blade-mcp', version: VERSION, instructions: INSTRUCTIONS, tools: Tools.all,
@@ -57,7 +58,8 @@ module BladeMcp
       transport = MCP::Server::Transports::StreamableHTTPTransport.new(
         server, stateless: true, enable_json_response: true, dns_rebinding_protection: false
       )
-      transport.handle_request(request)
+      # Holding one connection for the request checks it out and validates it once.
+      db.synchronize { transport.handle_request(request) }
     end
   end
 end

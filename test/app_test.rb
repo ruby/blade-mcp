@@ -50,16 +50,16 @@ class AppTest < BladeMcp::TestCase
                                                            'In-Reply-To' => '<root@msgid-secret.example>'),
                                     body: "Fixed.\n"
     store.resolve_parents
-    add_statement 'message_id', reply, date: Time.utc(2006, 12, 10, 1), kind: 'rejected', topic: 'File.exists?',
+    add_statement :message_id, reply, date: Time.utc(2006, 12, 10, 1), kind: 'rejected', topic: 'File.exists?',
                                        summary: 'matz kept File.exists? deprecated.', rationale: 'exist? reads better.',
                                        quote: 'Fixed.', features: %w[File.exists?]
     add_note 7, issue_id: 17391, note_number: 4, author_name: 'mame (Yusuke Endoh)', notes: 'matz: remove File.exists?'
-    add_statement 'journal_id', 7, reported: true, kind: 'accepted', topic: 'Removal of File.exists?',
+    add_statement :journal_id, 7, reported: true, kind: 'accepted', topic: 'Removal of File.exists?',
                                    summary: 'matz accepted removing File.exists?.', quote: 'matz: remove File.exists?',
                                    features: %w[File.exists?]
     meeting = add_meeting_item(heading: '[[Misc #17392]](https://bugs.ruby-lang.org/issues/17392) File.exists? (hsbt)',
                                body: "* matz: warn first.\n", issue_id: 17392)
-    add_statement 'meeting_item_id', meeting, date: Time.utc(2024, 2, 1), reported: true, kind: 'policy',
+    add_statement :meeting_item_id, meeting, date: Time.utc(2024, 2, 1), reported: true, kind: 'policy',
                                               topic: 'Warning before removing File.exists?',
                                               summary: 'matz wants a warning before File.exists? goes.',
                                               quote: 'matz: warn first.', features: %w[File.exists?]

@@ -10,7 +10,7 @@ class StoreTest < BladeMcp::TestCase
 
   def parent_of(list, seq)
     row = store.find(list, seq)
-    store.ref(row['parent_id'])&.values_at('list', 'seq') if row['parent_id']
+    store.ref(row[:parent_id])&.values_at(:list, :seq) if row[:parent_id]
   end
 
   def test_links_replies_by_the_nearest_reference_in_the_same_list
@@ -48,34 +48,34 @@ class StoreTest < BladeMcp::TestCase
     post 'ruby-dev', 4, 'c@x', replying_to: %w[root@x a@x]
     post 'ruby-dev', 5, 'unrelated@x'
     store.resolve_parents
-    rows = store.thread(store.find('ruby-dev', 4)['id'])
-    assert_equal [[1, 0, nil], [2, 1, 1], [3, 1, 1], [4, 2, 2]], rows.map { _1.values_at('seq', 'depth', 'parent_seq') }
+    rows = store.thread(store.find('ruby-dev', 4)[:id])
+    assert_equal [[1, 0, nil], [2, 1, 1], [3, 1, 1], [4, 2, 2]], rows.map { _1.values_at(:seq, :depth, :parent_seq) }
   end
 
   def test_thread_survives_a_parent_cycle
     post 'ruby-dev', 1, 'a@x'
     post 'ruby-dev', 2, 'b@x'
-    a, b = [1, 2].map { store.find('ruby-dev', _1)['id'] }
-    conn.exec_params('UPDATE messages SET parent_id = $2 WHERE id = $1', [a, b])
-    conn.exec_params('UPDATE messages SET parent_id = $2 WHERE id = $1', [b, a])
-    assert_equal [1, 2], store.thread(a).map { _1['seq'] }.sort
+    a, b = [1, 2].map { store.find('ruby-dev', _1)[:id] }
+    db[:messages].where(id: a).update(parent_id: b)
+    db[:messages].where(id: b).update(parent_id: a)
+    assert_equal [1, 2], store.thread(a).map { _1[:seq] }.sort
   end
 
   def test_reimport_keeps_the_embedding_only_when_the_text_is_unchanged
     id = save('ruby-dev', 1, body: "same\n")
-    conn.exec_params('UPDATE messages SET embedding = $2::vector WHERE id = $1', [id, vector(0)])
+    db[:messages].where(id:).update(embedding: vector(0))
     save('ruby-dev', 1, body: "same\n")
-    assert conn.exec('SELECT embedding IS NOT NULL FROM messages').getvalue(0, 0)
+    assert db[:messages].get(:embedding)
     save('ruby-dev', 1, body: "changed\n")
-    refute conn.exec('SELECT embedding IS NOT NULL FROM messages').getvalue(0, 0)
+    assert_nil db[:messages].get(:embedding)
   end
 
   def test_reimport_keeps_a_skip_mark_only_when_the_text_is_unchanged
     id = save('ruby-dev', 1, body: "same\n")
-    conn.exec_params('UPDATE messages SET embedding_skipped = true WHERE id = $1', [id])
+    db[:messages].where(id:).update(embedding_skipped: true)
     save('ruby-dev', 1, body: "same\n")
-    assert conn.exec('SELECT embedding_skipped FROM messages').getvalue(0, 0)
+    assert db[:messages].get(:embedding_skipped)
     save('ruby-dev', 1, body: "changed\n")
-    refute conn.exec('SELECT embedding_skipped FROM messages').getvalue(0, 0)
+    refute db[:messages].get(:embedding_skipped)
   end
 end

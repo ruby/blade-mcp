@@ -8,7 +8,7 @@ module BladeMcp
   # Full-text and vector candidates are merged with reciprocal rank fusion,
   # and the head of the merged list is reordered by the rerank model. Either
   # client may be absent, which leaves the full-text ranking in charge. The
-  # corpus names the table and turns filters into conditions on it.
+  # corpus gives the dataset narrowed by the filters and the rows to return.
   class Search
     CANDIDATES = 40
     RERANK = 30
@@ -41,19 +41,17 @@ module BladeMcp
     def lexical(query, depth, filters)
       phrases = Bigram.phrases(query)
       return [] if phrases.empty?
-      params = phrases.dup
-      tsquery = phrases.each_index.map { |i| "phraseto_tsquery('simple', $#{i + 1})" }.join(' && ')
-      where = ['tsv @@ q', *@corpus.conditions(params, **filters)]
-      @corpus.conn.transaction do |conn|
-        conn.exec("SET LOCAL statement_timeout = #{Integer(@lexical_timeout)}")
-        conn.exec_params(<<~SQL, params).column_values(0)
-          SELECT id FROM #{@corpus.table}, (SELECT #{tsquery}) AS query (q)
-          WHERE #{where.join(' AND ')}
-          ORDER BY ts_rank_cd(tsv, q) DESC, id
-          LIMIT #{depth}
-        SQL
+      tsquery = Sequel.lit("(#{Array.new(phrases.size, "phraseto_tsquery('simple', ?)").join(' && ')})", *phrases)
+      @corpus.db.transaction do
+        @corpus.db.run("SET LOCAL statement_timeout = #{Integer(@lexical_timeout)}")
+        @corpus.dataset(**filters)
+               .where(Sequel.lit('tsv @@ ?', tsquery))
+               .order(Sequel.desc(Sequel.function(:ts_rank_cd, :tsv, tsquery)), :id)
+               .limit(depth)
+               .select_map(:id)
       end
-    rescue PG::QueryCanceled
+    rescue Sequel::DatabaseError => e
+      raise unless e.wrapped_exception.is_a?(PG::QueryCanceled)
       @log.puts "full-text search skipped after #{@lexical_timeout}ms"
       []
     end
@@ -61,13 +59,14 @@ module BladeMcp
     # Without iterative scans, the index stops after hnsw.ef_search (40)
     # rows, before the list and date filters are applied.
     def semantic(query, depth, filters)
-      params = [DB.vector(@embedder.embed([query], input_type: 'search_query').first)]
-      where = ['embedding IS NOT NULL', *@corpus.conditions(params, **filters)]
-      @corpus.conn.transaction do |conn|
-        conn.exec('SET LOCAL hnsw.iterative_scan = strict_order')
-        conn.exec_params(<<~SQL, params).column_values(0)
-          SELECT id FROM #{@corpus.table} WHERE #{where.join(' AND ')} ORDER BY embedding <=> $1::vector LIMIT #{depth}
-        SQL
+      vector = DB.vector(@embedder.embed([query], input_type: 'search_query').first)
+      @corpus.db.transaction do
+        @corpus.db.run('SET LOCAL hnsw.iterative_scan = strict_order')
+        @corpus.dataset(**filters)
+               .exclude(embedding: nil)
+               .order(Sequel.lit('embedding <=> ?::vector', vector))
+               .limit(depth)
+               .select_map(:id)
       end
     rescue Inference::Error => e
       @log.puts "semantic search skipped: #{e.message}"

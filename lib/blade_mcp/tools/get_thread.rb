@@ -20,10 +20,10 @@ module BladeMcp
         store = server_context[:store]
         row = find_message(store, ref)
         return error_response("No such message: #{ref}") unless row
-        rows = store.thread(row['id'])
+        rows = store.thread(row[:id])
         messages = rows.first(Store::THREAD_LIMIT).map do |message|
-          parent = ref(message['parent_list'], message['parent_seq']) if message['parent_list']
-          summary(message).merge(parent:, depth: message['depth']).compact
+          parent = ref(message[:parent_list], message[:parent_seq]) if message[:parent_list]
+          summary(message).merge(parent:, depth: message[:depth]).compact
         end
         json_response(root: messages.find { |message| message[:depth].zero? }&.dig(:ref), messages:,
                       truncated: rows.size > Store::THREAD_LIMIT)

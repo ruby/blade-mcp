@@ -15,33 +15,27 @@ module BladeMcp
 
     LISTS = %w[ruby-core ruby-dev ruby-list ruby-ext ruby-math].freeze
 
-    def initialize(conn, client, log: $stdout)
-      @conn = conn
+    def initialize(db, client, log: $stdout)
+      @db = db
       @client = client
       @log = log
     end
 
     def run(lists: LISTS, limit: nil)
-      backfill('messages', limit) do |size|
-        rows = @conn.exec_params(<<~SQL, [lists, size])
-          SELECT id, list, seq, subject, body FROM messages
-          WHERE embedding IS NULL AND NOT embedding_skipped AND NOT notification AND list = ANY($1::text[])
-          ORDER BY id
-          LIMIT $2
-        SQL
-        rows.map { |row| row.merge('label' => "#{row['list']}:#{row['seq']}", 'text' => Text.passage(row['subject'], row['body'])) }
+      backfill(:messages, limit) do |size|
+        @db[:messages].select(:id, :list, :seq, :subject, :body)
+                      .where(embedding: nil, embedding_skipped: false, notification: false, list: lists)
+                      .order(:id).limit(size)
+                      .map { |row| row.merge(label: "#{row[:list]}:#{row[:seq]}", text: Text.passage(row[:subject], row[:body])) }
       end
     end
 
     def run_statements(limit: nil)
-      backfill('statements', limit) do |size|
-        rows = @conn.exec_params(<<~SQL, [size])
-          SELECT id, topic, summary, rationale, quote FROM statements
-          WHERE embedding IS NULL AND NOT embedding_skipped
-          ORDER BY id
-          LIMIT $1
-        SQL
-        rows.map { |row| row.merge('label' => "statement #{row['id']}", 'text' => Statements.document(row)) }
+      backfill(:statements, limit) do |size|
+        @db[:statements].select(:id, :topic, :summary, :rationale, :quote)
+                        .where(embedding: nil, embedding_skipped: false)
+                        .order(:id).limit(size)
+                        .map { |row| row.merge(label: "statement #{row[:id]}", text: Statements.document(row)) }
       end
     end
 
@@ -61,8 +55,8 @@ module BladeMcp
         # rows, so none of them is marked.
         raise Inference::Blocked, "every row in a batch of #{table} was blocked" if saved.zero? && rows.size > 1
         skipped.each do |row|
-          @conn.exec_params("UPDATE #{table} SET embedding_skipped = true WHERE id = $1", [row['id']])
-          @log.puts "#{row['label']} was blocked, left without an embedding"
+          @db[table].where(id: row[:id]).update(embedding_skipped: true)
+          @log.puts "#{row[:label]} was blocked, left without an embedding"
         end
         done += rows.size
         embedded += saved
@@ -74,10 +68,10 @@ module BladeMcp
     # Only the offending row is blocked, so a blocked batch is halved until it
     # stands alone.
     def store(table, rows, skipped)
-      vectors = embed(rows.map { |row| row['text'].empty? ? '(empty)' : row['text'] })
-      @conn.transaction do
+      vectors = embed(rows.map { |row| row[:text].empty? ? '(empty)' : row[:text] })
+      @db.transaction do
         rows.zip(vectors) do |row, vector|
-          @conn.exec_params("UPDATE #{table} SET embedding = $2::vector WHERE id = $1", [row['id'], DB.vector(vector)])
+          @db[table].where(id: row[:id]).update(embedding: DB.vector(vector))
         end
       end
       rows.size

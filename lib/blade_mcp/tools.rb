@@ -28,14 +28,14 @@ module BladeMcp
       end
 
       def summary(row)
-        name, address = row.values_at('from_name', 'from_address')
+        name, address = row.values_at(:from_name, :from_address)
         {
-          ref: ref(row['list'], row['seq']),
+          ref: ref(row[:list], row[:seq]),
           from: name && address ? "#{name} <#{address}>" : name || address,
-          date: row['date']&.getutc&.iso8601,
-          subject: row['subject'],
-          issue: row['issue'],
-          notification: (true if row['notification'])
+          date: row[:date]&.getutc&.iso8601,
+          subject: row[:subject],
+          issue: row[:issue],
+          notification: (true if row[:notification])
         }.compact
       end
 
@@ -44,19 +44,19 @@ module BladeMcp
       # the agenda heading, with links reduced to their text.
       def statement(row)
         {
-          kind: row['kind'],
-          topic: row['topic'],
-          summary: row['summary'],
-          rationale: row['rationale'],
-          quote: row['quote'],
-          features: row['features'],
-          date: row['date']&.getutc&.iso8601,
-          ref: (ref(row['list'], row['seq']) if row['list']),
-          issue: row['issue_id'],
-          note: row['note_number'],
-          meeting: row['meeting'],
-          agenda: (row['agenda'].gsub(/\[(\[[^\]]*\]|[^\]]*)\]\(https?:[^)]*\)/, '\1') unless row['agenda'].to_s.empty?),
-          reported_by: (row['author_name'] if row['reported'])
+          kind: row[:kind],
+          topic: row[:topic],
+          summary: row[:summary],
+          rationale: row[:rationale],
+          quote: row[:quote],
+          features: row[:features].to_a,
+          date: row[:date]&.getutc&.iso8601,
+          ref: (ref(row[:list], row[:seq]) if row[:list]),
+          issue: row[:issue_id],
+          note: row[:note_number],
+          meeting: row[:meeting],
+          agenda: (row[:agenda].gsub(/\[(\[[^\]]*\]|[^\]]*)\]\(https?:[^)]*\)/, '\1') unless row[:agenda].to_s.empty?),
+          reported_by: (row[:author_name] if row[:reported])
         }.compact
       end
 

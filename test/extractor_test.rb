@@ -26,20 +26,19 @@ class ExtractorTest < BladeMcp::TestCase
   end
 
   def extract(client, **options)
-    BladeMcp::Extractor.new(conn, client, concurrency: 2, log: StringIO.new).run(**options)
+    BladeMcp::Extractor.new(db, client, concurrency: 2, log: StringIO.new).run(**options)
   end
 
   def extracted(table, key)
-    conn.exec("SELECT #{key} FROM #{table} WHERE statements_extracted_at IS NOT NULL ORDER BY #{key}").column_values(0)
+    db[table].exclude(statements_extracted_at: nil).order(key).select_map(key)
   end
 
   def note(journal_id, by_matz:, notes:)
-    conn.exec_params(<<~SQL, [journal_id, by_matz, by_matz ? 'matz (Yukihiro Matsumoto)' : 'mame (Yusuke Endoh)', notes])
-      INSERT INTO redmine_notes (journal_id, issue_id, note_number, project, tracker, issue_subject, issue_description,
-                                 author_name, by_matz, created_on, notes, previous_author, previous_notes)
-      VALUES ($1, 100, $1, 'Ruby', 'Feature', 'Add Array#foo', 'I propose Array#foo.', $3, $2, '2024-01-03 00:00:00Z', $4,
-              'ko1 (Koichi Sasada)', 'Looks useful.')
-    SQL
+    db[:redmine_notes].insert(journal_id:, issue_id: 100, note_number: journal_id, project: 'Ruby', tracker: 'Feature',
+                              issue_subject: 'Add Array#foo', issue_description: 'I propose Array#foo.',
+                              author_name: by_matz ? 'matz (Yukihiro Matsumoto)' : 'mame (Yusuke Endoh)', by_matz:,
+                              created_on: Time.utc(2024, 1, 3), notes:, previous_author: 'ko1 (Koichi Sasada)',
+                              previous_notes: 'Looks useful.')
   end
 
   def test_reads_matz_mails_with_their_parent
@@ -56,13 +55,13 @@ class ExtractorTest < BladeMcp::TestCase
     prompt = client.prompts.first
     assert_includes prompt, "<context>\nParent post [ruby-dev:1] by Yusuke Endoh\nSubject: Array#foo\n\nLet's add Array#foo."
     assert_includes prompt, "<target>\nPost [ruby-dev:2] by Yukihiro Matsumoto (matz) on 2006-12-08\nSubject: Re: Array#foo"
-    rows = conn.exec('SELECT message_id, journal_id, kind, topic, rationale, quote, features, reported, model FROM statements').to_a
+    rows = db[:statements].select(:message_id, :journal_id, :kind, :topic, :rationale, :quote, :features, :reported, :model).all
     assert_equal 1, rows.size
     row = rows.first
-    assert_equal [store.find('ruby-dev', 2)['id'], nil, 'accepted', 'Array#foo', nil, 'OK, accepted.', ['Array#foo'], false,
+    assert_equal [store.find('ruby-dev', 2)[:id], nil, 'accepted', 'Array#foo', nil, 'OK, accepted.', ['Array#foo'], false,
                   'stub-model'],
-                 row.values_at('message_id', 'journal_id', 'kind', 'topic', 'rationale', 'quote', 'features', 'reported', 'model')
-    assert_equal [store.find('ruby-dev', 2)['id']], extracted('messages', 'id')
+                 row.values_at(:message_id, :journal_id, :kind, :topic, :rationale, :quote, :features, :reported, :model)
+    assert_equal [store.find('ruby-dev', 2)[:id]], extracted(:messages, :id)
     assert_equal 0, extract(StubChat.new { flunk }, sources: %w[ml])
   end
 
@@ -74,7 +73,7 @@ class ExtractorTest < BladeMcp::TestCase
     assert_includes client.prompts.first, "Issue #100 (Feature): Add Array#foo\n\nI propose Array#foo.\n\nPrevious comment by ko1"
     assert_includes client.prompts.first, 'Comment #note-3 on issue #100 by matz (Yukihiro Matsumoto) on 2024-01-03'
     assert_equal [[3, 'accepted', false], [5, 'naming', true]],
-                 conn.exec('SELECT journal_id, kind, reported FROM statements ORDER BY journal_id').values
+                 db[:statements].order(:journal_id).select_map(%i[journal_id kind reported])
   end
 
   def test_quotes_of_matz_comments_are_cut_from_other_comments
@@ -96,8 +95,8 @@ class ExtractorTest < BladeMcp::TestCase
                                           'and kept as 2024/DevMeeting-2024-02-01.md in ruby/dev-meeting-log.'
     assert_includes client.prompts.first, "From the agenda item \"[[Feature #100]](https://bugs.ruby-lang.org/issues/100) " \
                                           "Add Array#foo (mame)\"\n\n* matz: accepted."
-    assert_equal [[id, true, Time.utc(2024, 2, 1)]], conn.exec('SELECT meeting_item_id, reported, date FROM statements').values
-    assert_equal [id], extracted('meeting_items', 'id')
+    assert_equal [[id, true, Time.utc(2024, 2, 1)]], db[:statements].select_map(%i[meeting_item_id reported date])
+    assert_equal [id], extracted(:meeting_items, :id)
   end
 
   def test_blocked_text_is_not_read_again_but_failures_are
@@ -108,7 +107,7 @@ class ExtractorTest < BladeMcp::TestCase
       raise BladeMcp::Inference::Error, '500' if prompt.include?('flaky')
     end
     assert_equal 2, extract(client)
-    assert_equal [store.find('ruby-dev', 1)['id']], extracted('messages', 'id')
+    assert_equal [store.find('ruby-dev', 1)[:id]], extracted(:messages, :id)
     retry_client = StubChat.new { [] }
     assert_equal 1, extract(retry_client)
     assert_equal 1, retry_client.prompts.size
@@ -122,6 +121,6 @@ class ExtractorTest < BladeMcp::TestCase
     save 'ruby-dev', 1, body: "first, edited\n"
     client = StubChat.new { [statement(topic: 'edited')] }
     assert_equal 2, extract(client)
-    assert_equal %w[edited edited], conn.exec('SELECT topic FROM statements ORDER BY message_id').column_values(0)
+    assert_equal %w[edited edited], db[:statements].order(:message_id).select_map(:topic)
   end
 end

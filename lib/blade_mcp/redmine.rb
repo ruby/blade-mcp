@@ -51,19 +51,20 @@ module BladeMcp
       ORDER BY j.id
     SQL
 
-    def initialize(conn, url: URL, log: $stdout)
-      @conn = conn
+    COLUMNS = %i[journal_id issue_id note_number project tracker issue_subject issue_description author_name by_matz
+                 created_on notes previous_author previous_notes].freeze
+
+    def initialize(db, url: URL, log: $stdout)
+      @db = db
       @url = url
       @log = log
     end
 
     def import(bugs)
-      rows = bugs.transaction do
-        bugs.exec('SET TRANSACTION READ ONLY')
-        [bugs.exec('SELECT now()').getvalue(0, 0), bugs.exec(NOTES_SQL).to_a]
+      checked_at, notes = bugs.transaction(read_only: true) do
+        [bugs.get(Sequel.function(:now)), bugs.fetch(NOTES_SQL).all]
       end
-      checked_at, notes = rows
-      @conn.transaction do
+      @db.transaction do
         notes.each { |note| save(note) }
         checked!(checked_at)
       end
@@ -72,12 +73,12 @@ module BladeMcp
     end
 
     def sync
-      checked_at = @conn.exec("SELECT value FROM sync_state WHERE name = 'redmine_checked_at'").first&.fetch('value')
+      checked_at = @db[:sync_state].where(name: 'redmine_checked_at').get(:value)
       raise 'run import-redmine before syncing' unless checked_at
       started = Time.now.utc
       since = (Time.iso8601(checked_at) - OVERLAP).utc.iso8601
       notes = updated_issue_ids(since).flat_map { |id| issue_notes(id) }
-      @conn.transaction do
+      @db.transaction do
         notes.each { |note| save(note) }
         checked!(started)
       end
@@ -88,20 +89,15 @@ module BladeMcp
     private
 
     def save(note)
-      columns = %w[journal_id issue_id note_number project tracker issue_subject issue_description author_name by_matz
-                   created_on notes previous_author previous_notes]
-      @conn.exec_params(<<~SQL, note.values_at(*columns))
-        INSERT INTO redmine_notes (#{columns.join(', ')}) VALUES (#{columns.each_index.map { |i| "$#{i + 1}" }.join(', ')})
-        ON CONFLICT (journal_id) DO UPDATE SET #{columns.drop(1).map { |c| "#{c} = EXCLUDED.#{c}" }.join(', ')},
-          statements_extracted_at = CASE WHEN redmine_notes.notes = EXCLUDED.notes THEN redmine_notes.statements_extracted_at END
-      SQL
+      update = COLUMNS.drop(1).to_h { |column| [column, Sequel[:excluded][column]] }
+      update[:statements_extracted_at] =
+        Sequel.case({Sequel[:redmine_notes][:notes] =~ Sequel[:excluded][:notes] => Sequel[:redmine_notes][:statements_extracted_at]}, nil)
+      @db[:redmine_notes].insert_conflict(target: :journal_id, update:).insert(note.slice(*COLUMNS))
     end
 
     def checked!(time)
-      @conn.exec_params(<<~SQL, [time.utc.iso8601])
-        INSERT INTO sync_state (name, value) VALUES ('redmine_checked_at', $1)
-        ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value
-      SQL
+      @db[:sync_state].insert_conflict(target: :name, update: {value: Sequel[:excluded][:value]})
+                      .insert(name: 'redmine_checked_at', value: time.utc.iso8601)
     end
 
     def updated_issue_ids(since)
@@ -123,11 +119,11 @@ module BladeMcp
         author = journal.dig('user', 'name')
         by_matz = author.to_s.split(' (').first == MATZ
         note = {
-          'journal_id' => journal['id'], 'issue_id' => issue['id'], 'note_number' => number,
-          'project' => issue.dig('project', 'name'), 'tracker' => issue.dig('tracker', 'name'),
-          'issue_subject' => issue['subject'], 'issue_description' => issue['description'], 'author_name' => author,
-          'by_matz' => by_matz, 'created_on' => Time.iso8601(journal['created_on']), 'notes' => notes,
-          'previous_author' => previous&.dig('user', 'name'), 'previous_notes' => previous&.fetch('notes')
+          journal_id: journal['id'], issue_id: issue['id'], note_number: number,
+          project: issue.dig('project', 'name'), tracker: issue.dig('tracker', 'name'),
+          issue_subject: issue['subject'], issue_description: issue['description'], author_name: author,
+          by_matz:, created_on: Time.iso8601(journal['created_on']), notes:,
+          previous_author: previous&.dig('user', 'name'), previous_notes: previous&.fetch('notes')
         }
         previous = journal
         note if by_matz || notes.match?(/\bmatz\b/i)

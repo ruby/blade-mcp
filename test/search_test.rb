@@ -38,7 +38,7 @@ class SearchTest < BladeMcp::TestCase
   end
 
   def refs(rows)
-    rows.map { |row| "#{row['list']}:#{row['seq']}" }
+    rows.map { |row| "#{row[:list]}:#{row[:seq]}" }
   end
 
   def search(query, embedder: nil, reranker: nil, **filters)
@@ -81,9 +81,9 @@ class SearchTest < BladeMcp::TestCase
   end
 
   def test_semantic_matches_are_fused_with_full_text_ones
-    ids = %w[30000 30001].to_h { [_1, store.find('ruby-dev', _1.to_i)['id']] }
-    conn.exec_params('UPDATE messages SET embedding = $2::vector WHERE id = $1', [ids['30000'], vector(0)])
-    conn.exec_params('UPDATE messages SET embedding = $2::vector WHERE id = $1', [ids['30001'], vector(1)])
+    ids = %w[30000 30001].to_h { [_1, store.find('ruby-dev', _1.to_i)[:id]] }
+    db[:messages].where(id: ids['30000']).update(embedding: vector(0))
+    db[:messages].where(id: ids['30001']).update(embedding: vector(1))
     embedder = StubEmbedder.new([1.0] + Array.new(1535, 0.0))
     assert_equal %w[ruby-dev:30000], search('金本')
     assert_equal %w[ruby-dev:30000 ruby-dev:30001], search('金本', embedder:)
@@ -113,19 +113,19 @@ class SearchTest < BladeMcp::TestCase
   # Keeps the query running past a short timeout, as a word found in most
   # messages would.
   class SlowStore < BladeMcp::Store
-    def conditions(params, **filters)
-      super << '(SELECT true FROM pg_sleep(0.05))'
+    def dataset(**filters)
+      super.where(Sequel.lit('(SELECT true FROM pg_sleep(0.05))'))
     end
   end
 
   def test_a_slow_full_text_search_leaves_the_semantic_ranking_alone
-    ids = %w[30000 30001].to_h { [_1, store.find('ruby-dev', _1.to_i)['id']] }
-    conn.exec_params('UPDATE messages SET embedding = $2::vector WHERE id = $1', [ids['30000'], vector(0)])
-    conn.exec_params('UPDATE messages SET embedding = $2::vector WHERE id = $1', [ids['30001'], vector(1)])
+    ids = %w[30000 30001].to_h { [_1, store.find('ruby-dev', _1.to_i)[:id]] }
+    db[:messages].where(id: ids['30000']).update(embedding: vector(0))
+    db[:messages].where(id: ids['30001']).update(embedding: vector(1))
     embedder = StubEmbedder.new([0.0, 1.0] + Array.new(1534, 0.0))
     assert_equal %w[ruby-dev:30000 ruby-dev:30001], search('金本', embedder:)
     log = StringIO.new
-    rows = BladeMcp::Search.new(SlowStore.new(conn), embedder:, lexical_timeout: 10, log:).call('金本')
+    rows = BladeMcp::Search.new(SlowStore.new(db), embedder:, lexical_timeout: 10, log:).call('金本')
     assert_equal %w[ruby-dev:30001 ruby-dev:30000], refs(rows)
     assert_match 'full-text search skipped after 10ms', log.string
   end

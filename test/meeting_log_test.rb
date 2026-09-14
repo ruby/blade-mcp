@@ -50,12 +50,12 @@ class MeetingLogTest < BladeMcp::TestCase
   end
 
   def meeting_log(url)
-    BladeMcp::MeetingLog.new(conn, api: url, archive: url, raw: url, token: nil, log: StringIO.new)
+    BladeMcp::MeetingLog.new(db, api: url, archive: url, raw: url, token: nil, log: StringIO.new)
   end
 
   def items
-    conn.exec('SELECT path, position, heading, issue_id, statements_extracted_at IS NOT NULL AS read FROM meeting_items ' \
-              'ORDER BY path, position').map { _1.values_at('path', 'position', 'heading', 'issue_id', 'read') }
+    db[:meeting_items].order(:path, :position)
+                      .select_map([:path, :position, :heading, :issue_id, Sequel.~(statements_extracted_at: nil).as(:read)])
   end
 
   def test_items_are_split_at_headings_up_to_level_three
@@ -81,7 +81,7 @@ class MeetingLogTest < BladeMcp::TestCase
     assert_equal [['2024/DevMeeting-2024-01-10.md', 0, 'DevMeeting-2024-01-10', nil, false],
                   ['2024/DevMeeting-2024-01-10.md', 1, '[[Feature #100]](https://bugs.ruby-lang.org/issues/100) Add Array#foo (mame)', 100, false]],
                  items
-    assert_equal 'c1', conn.exec("SELECT value FROM sync_state WHERE name = 'meeting_log_commit'").getvalue(0, 0)
+    assert_equal 'c1', db[:sync_state].where(name: 'meeting_log_commit').get(:value)
   end
 
   def test_sync_reads_only_the_notes_changed_since_the_last_commit
@@ -90,7 +90,7 @@ class MeetingLogTest < BladeMcp::TestCase
     serve('/repos/ruby/dev-meeting-log/commits/master' => '{"sha":"c1"}', '/ruby/dev-meeting-log/tar.gz/c1' => tarball(files)) do |url|
       meeting_log(url).import
     end
-    conn.exec('UPDATE meeting_items SET statements_extracted_at = now()')
+    db[:meeting_items].update(statements_extracted_at: Sequel::CURRENT_TIMESTAMP)
     compare = JSON.generate(files: [
       {filename: '2024/DevMeeting-2024-01-10.md', status: 'modified'},
       {filename: '2024/DevMeeting-2024-02-14.md', status: 'added'},
@@ -116,10 +116,10 @@ class MeetingLogTest < BladeMcp::TestCase
                   ['2024/DevMeeting-2024-02-14.md', 0, 'DevMeeting-2024-02-14', nil, false],
                   ['2024/DevMeeting-2024-03-13.md', 0, 'DevMeeting-2024-01-10', nil, true]],
                  items
-    assert_equal 'c2', conn.exec("SELECT value FROM sync_state WHERE name = 'meeting_log_commit'").getvalue(0, 0)
+    assert_equal 'c2', db[:sync_state].where(name: 'meeting_log_commit').get(:value)
   end
 
   def test_sync_needs_an_import_first
-    assert_raises(RuntimeError) { BladeMcp::MeetingLog.new(conn, log: StringIO.new).sync }
+    assert_raises(RuntimeError) { BladeMcp::MeetingLog.new(db, log: StringIO.new).sync }
   end
 end
