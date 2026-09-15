@@ -86,6 +86,7 @@ class RedmineTest < BladeMcp::TestCase
       assert_equal 2, BladeMcp::Redmine.new(db, url:, log: StringIO.new).sync
     end
     assert_includes requested.first, 'updated_on=%3E%3D2024-02-01T00%3A00%3A00Z'
+    refute_includes requested.first, 'sort='
     assert_includes requested[1], 'offset=1'
     assert_equal [[13, 3, true, 'Proposal looks good.'], [14, 4, false, 'Rejected.']],
                  notes.map { _1.values_at(:journal_id, :note_number, :by_matz, :previous_notes) }

@@ -100,14 +100,16 @@ module BladeMcp
                       .insert(name: 'redmine_checked_at', value: time.utc.iso8601)
     end
 
+    # bugs.ruby-lang.org answers any sort parameter with 403, so pages come in its default order, where an issue
+    # updated meanwhile can move to a later page and show up twice.
     def updated_issue_ids(since)
       ids = []
       loop do
-        page = get('/issues.json', status_id: '*', updated_on: ">=#{since}", sort: 'updated_on', limit: PAGE, offset: ids.size)
+        page = get('/issues.json', status_id: '*', updated_on: ">=#{since}", limit: PAGE, offset: ids.size)
         ids.concat(page.fetch('issues').map { |issue| issue['id'] })
         break if page['issues'].empty? || ids.size >= page.fetch('total_count')
       end
-      ids
+      ids.uniq
     end
 
     def issue_notes(id)
