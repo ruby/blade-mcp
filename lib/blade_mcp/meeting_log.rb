@@ -23,6 +23,8 @@ module BladeMcp
     # Japanese copies of notes kept in English as well are left out.
     NOTES = %r{\A\d{4}/[^/]+(?<!-JA)\.md\z}
     HEADING = /\A\#{1,3} /
+    # A code block may open inside a list item, as in "* ```ruby".
+    FENCE = /\A\s*(?:(?:[*+-]|\d+\.)\s+)?```/
     ISSUE = /(?:Feature|Bug|Misc) #(\d+)/
     MIN_BODY = 20
 
@@ -45,7 +47,7 @@ module BladeMcp
       items = [[+'', +'']]
       fenced = false
       text.sub(/\A---\n.*?\n---\n/m, '').each_line do |line|
-        fenced = !fenced if line.lstrip.start_with?('```')
+        fenced = !fenced if line.match?(FENCE)
         if !fenced && line.match?(HEADING)
           items << [line.sub(/\A#+ /, '').strip, +'']
         else

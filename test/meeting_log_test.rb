@@ -66,6 +66,15 @@ class MeetingLogTest < BladeMcp::TestCase
     assert_includes bodies[1], "#### Conclusion\n\n* matz: accepted.\n"
   end
 
+  def test_a_code_block_opened_in_a_list_item_hides_its_comments
+    text = "# DevMeeting-2024-01-10\n\n## Ordinary tickets\n\n### [Feature #100] Add Array#foo (mame)\n\n" \
+           "* Example:\n  * ```ruby\n    # a comment, not a heading\n    [1].foo\n    ```\n* matz: accepted.\n\n" \
+           "### [Feature #200] Add Array#bar (ko1)\n\n* matz: rejected, for now.\n"
+    headings, bodies = BladeMcp::MeetingLog.items(text).transpose
+    assert_equal ['[Feature #100] Add Array#foo (mame)', '[Feature #200] Add Array#bar (ko1)'], headings
+    assert_includes bodies[0], "# a comment, not a heading\n"
+  end
+
   def test_dates_come_from_the_file_names
     assert_equal Date.new(2026, 7, 9), BladeMcp::MeetingLog.date('2026/DevMeeting-2026-07-09.md')
     assert_equal Date.new(2020, 5, 14), BladeMcp::MeetingLog.date('2020/DevelopersMeeting20200514Japan.md')
