@@ -43,6 +43,17 @@ bin/blade-mcp extract --sources redmine --limit 100
 
 `import` reads whole lists, `update` takes only messages numbered above the last one stored, embeds them, fetches bugs.ruby-lang.org comments by or about matz through the REST API and the meeting notes changed in ruby/dev-meeting-log, extracts statements from what is not yet read and embeds those statements, which is what Heroku Scheduler runs daily. `import-redmine` fills those comments in from the Redmine database once, and `import-meetings` the notes of the developers' meetings from a tarball of the repository, split into agenda items at their headings; both have to run before the first `update`. `embed` covers every list but ruby-talk by default and skips Redmine notifications. `extract` has the chat model read matz's mails, with the post each one replies to, those comments and the agenda items, and records what he said about Ruby's design as statements: decisions, opinions, conditions and principles, each with its reason and the features it concerns. Every mail, comment and agenda item is read once.
 
+## Benchmark
+
+`benchmark/decisions.rb` measures how well a consultant predicts matz. Each question in `benchmark/decisions.yml` is a decision he made on bugs.ruby-lang.org after the models' training data ends, asked without tools and with `search_matz` and `matz_timeline` that see only what he said before it, and the chat model scores each answer against the decision. The consultant is the chat model itself (`--consultant heroku`) or Claude Code with a given model (`--consultant opus`), optionally with the skill (`--skill skills/blade/SKILL.md`). Tune on `--set tune` and keep `--set check` for confirming a change. `benchmark/workflow.rb` sends the requests in `benchmark/workflow.yml` to Claude Code with and without the skill, through the server at `BLADE_MCP_URL` (default `https://blade.ruby-lang.org/mcp`, with `BLADE_MCP_TOKEN`), and reports whether the answers route each request to whoever decides it and find the past discussion asked for.
+
+Both need `DATABASE_URL` and the inference variables, and only read the database, so production can be used with `PGOPTIONS='-c default_transaction_read_only=on'`. Claude Code runs without the settings, CLAUDE.md and skills of whoever runs it, and its answers count against that account's usage.
+
+```
+bundle exec ruby benchmark/decisions.rb --consultant sonnet --skill skills/blade/SKILL.md --set tune tmp/sonnet
+bundle exec ruby benchmark/workflow.rb --models sonnet,opus tmp/workflow.json
+```
+
 ## Development
 
 Schema changes are Sequel migrations in `db/migrate`, named with a timestamp and written as raw SQL with `run`, and `migrate` applies the ones not yet recorded, which Heroku does on every release. Tests drop and recreate the tables in `TEST_DATABASE_URL`, which defaults to `postgres://postgres@localhost/blade_mcp_test` and needs pgvector.

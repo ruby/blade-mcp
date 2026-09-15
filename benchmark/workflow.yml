@@ -1,0 +1,84 @@
+# Requests from the daily work of the core team, for the parts of skills/blade beyond predicting matz. A routing
+# request is graded against who decides it by doc/maintainers.md of ruby/ruby, and a discussion request by whether
+# the answer cites a mail of the thread under root or the issue.
+
+routing:
+  - id: bundler-path
+    request: >-
+      I want `bundle install` to install gems into vendor/bundle by default instead of the system gem directory. Help
+      me get this change made.
+    truth: >-
+      Bundler is a default gem whose maintainer is hsbt, developed in ruby/rubygems. The maintainer decides it there,
+      and it needs neither matz nor the developers' meeting.
+  - id: tempfile
+    request: >-
+      I would like Tempfile.create to accept a `mode:` keyword for opening the file in binary mode. How should I move
+      this forward?
+    truth: >-
+      lib/tempfile has no maintainer. Any core team member can fix issues, but a feature change needs consensus on
+      ruby-core or ruby-dev, that is on the tracker. It is not matz's decision as such.
+  - id: socket
+    request: >-
+      I want to add a `fast_fallback:` keyword to Socket.tcp to turn Happy Eyeballs off. Who do I need to convince,
+      and how?
+    truth: >-
+      ext/socket is maintained by akr, and an API change there also needs matz's approval, so both the maintainer and
+      matz have to agree.
+  - id: timeout
+    request: Timeout.timeout should take a keyword to choose the exception message. Help me propose it.
+    truth: >-
+      lib/timeout is maintained by matz himself, so matz decides, and bringing it to him, for example at the
+      developers' meeting, is right.
+  - id: array-method
+    request: >-
+      I want to propose Array#sole, returning the only element or raising when there are zero or several. Help me
+      prepare the proposal.
+    truth: Array is a core class, so matz decides, through a Feature ticket and the developers' meeting.
+  - id: rake
+    request: rake should stop loading Rakefile from parent directories by default. How do I get this changed?
+    truth: >-
+      rake is a bundled gem, so its policy is set upstream in ruby/rake, whose maintainer is hsbt. It is decided
+      there, not by matz or in ruby/ruby.
+  - id: backport
+    request: A crash fix landed on master and I need it in the next Ruby 3.4 patch release. What should I do?
+    truth: >-
+      Stable branches and patch releases belong to the branch maintainers, listed on the Release Engineering wiki
+      page. Request the backport on the ticket for them to decide. matz is not involved.
+  - id: mswin
+    request: I want the mswin build to require Visual Studio 2022 or later and drop older toolchains. Who decides that?
+    truth: mswin64 is a platform with its own maintainer, unak (NAKAMURA Usaku), who decides it, not matz.
+  - id: coverage
+    request: Coverage should gain a mode that records which `rescue` clauses ran. Help me get it accepted.
+    truth: >-
+      ext/coverage is maintained by mame, who decides its features. matz is not needed unless the language itself
+      changes.
+  - id: syntax
+    request: >-
+      I want to propose `a.?b` as new syntax that calls b only when a responds to it. Help me prepare it.
+    truth: New syntax is a language core feature, which matz decides, through a Feature ticket and the developers' meeting.
+
+discussions:
+  - id: rubygems-19
+    request: Ruby 1.9 で RubyGems を標準添付したとき、どういう議論があって何が論点になったか、元の議論を示して教えてください。
+    root: ruby-dev:31320
+  - id: stdlib-criteria
+    request: >-
+      What criteria were discussed for adopting libraries into the standard library for Ruby 1.9? Point me to the
+      original discussion.
+    root: ruby-dev:31227
+  - id: net-https
+    request: net/https の中身が net/http に統合されたときの経緯と、そのときの判断を元の議論つきで教えてください。
+    root: ruby-dev:39995
+    issue: 2574
+  - id: thread-exclusive
+    request: Why was Thread.exclusive deprecated? Show me where it was discussed.
+    root: ruby-core:78341
+    issue: 11904
+  - id: bundler-core
+    request: How did Bundler come to be shipped with Ruby? Show me the discussion.
+    issue: 12733
+  - id: singleton-shorthand
+    request: >-
+      Someone once asked on ruby-dev for a short way to add an attribute to an object, like `a.some = "foo"` on an
+      Array. What were they told? Point me to the thread.
+    root: ruby-dev:42965
