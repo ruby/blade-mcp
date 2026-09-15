@@ -1,6 +1,6 @@
 # blade-mcp
 
-An MCP server for the archive of the Ruby mailing lists (ruby-core, ruby-dev, ruby-list, ruby-talk, ruby-ext and ruby-math). It imports the original messages from the private `blade-data-vault` bucket into Postgres and serves read-only tools at `POST /mcp` over Streamable HTTP in stateless mode: `search`, `get_message` and `get_thread` over the mail, and `search_matz` and `matz_timeline` over what matz said about the design of Ruby, drawn from his mails and bugs.ruby-lang.org comments.
+An MCP server for the archive of the Ruby mailing lists (ruby-core, ruby-dev, ruby-list, ruby-talk, ruby-ext and ruby-math). It imports the original messages from the private `blade-data-vault` bucket into Postgres and serves read-only tools at `POST /mcp` over Streamable HTTP in stateless mode: `search`, `get_message` and `get_thread` over the mail, and `search_matz` and `matz_timeline` over what matz said about the design of Ruby, drawn from his mails, bugs.ruby-lang.org comments and the notes of the developers' meetings.
 
 ```
 claude mcp add --transport http blade https://blade.ruby-lang.org/mcp --header "Authorization: Bearer $BLADE_MCP_TOKEN"
