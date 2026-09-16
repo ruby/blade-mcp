@@ -40,7 +40,7 @@ module BladeMcp
       - settles how a feature behaves (design), or what something is named, including names he turns down (naming)
       - sets a policy on releases, compatibility, licensing or process (policy)
       - gives a view or a concern about a feature without settling it (opinion)
-      - puts a question off, or says he has not made up his mind (undecided)
+      - puts a question off, says he has not made up his mind, or leaves candidates open, such as names still being weighed (undecided)
       - states what a proposal needs before he would accept it (condition)
       - states a design value that reaches beyond the case at hand (principle)
 
@@ -49,9 +49,9 @@ module BladeMcp
       - who gets commit access or maintains what, including permission to commit a patch
       - a description of how something works now that carries no judgment. When matz gives a reason the current behavior is right, record that as design.
       - hearsay with no occasion, such as someone recalling that matz said something somewhere. A report that names where he said it, such as a meeting or a comment, is recordable.
-      When the target was written by someone else, record only what it reports matz said or decided, such as meeting notes.
+      When the target was written by someone else, record only what it reports matz said or decided, such as meeting notes, and begin summary with whose record it is, such as "The meeting notes record that" or "ko1 reports that".
 
-      Use the context only to understand what the target refers to. Write topic, summary and rationale in English, and leave rationale empty when the target gives no reason. Copy quote verbatim from the target in its original language. List in features the Ruby classes, modules, methods, syntax or subsystems the statement is about, spelled as Ruby spells them, such as Ractor, YJIT, Ruby::Box, Hash#fetch or refinements. Call record_statements exactly once, with an empty list when the target holds nothing to record.
+      Use the context only to understand what the target refers to. Write topic, summary and rationale in English, and leave rationale empty when the target gives no reason. summary and rationale say no more than the target: do not add an alternative he did not mention, such as "rather than removing it", a reason he did not give, or a decision the target leaves open. Copy quote verbatim from the target in its original language. List in features the Ruby classes, modules, methods, syntax or subsystems the statement is about, spelled as Ruby spells them, such as Ractor, YJIT, Ruby::Box, Hash#fetch or refinements. Call record_statements exactly once, with an empty list when the target holds nothing to record.
     TEXT
 
     TOOL = {
