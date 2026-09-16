@@ -94,11 +94,16 @@ bundle exec rake test
 
 ### Benchmark
 
-`benchmark/decisions.rb` measures how well a consultant predicts matz. Each question in `benchmark/decisions.yml` is a decision he made on bugs.ruby-lang.org after the models' training data ends, asked without tools and with `search_matz` and `matz_timeline` that see only what he said before it, and the chat model scores each answer against the decision. The consultant is the chat model itself (`--consultant heroku`) or Claude Code with a given model (`--consultant opus`), optionally with the skill (`--skill skills/blade/SKILL.md`). Tune on `--set tune` and keep `--set check` for confirming a change. `benchmark/workflow.rb` sends the requests in `benchmark/workflow.yml` to Claude Code with and without the skill, through the server at `BLADE_MCP_URL` (default `https://blade.ruby-lang.org/mcp`, with `BLADE_MCP_TOKEN`), and reports whether the answers route each request to whoever decides it and find the past discussion asked for.
+`benchmark/gaps.rb` measures how well a consultant finds what a proposal still needs before matz accepts it. Each entry in `benchmark/gaps.yml` is a proposal he answered on bugs.ruby-lang.org after the models' training data ends, described as it stood the day before his reply, with the conditions, objections and questions that reply actually raised, each cited to his note. The consultant sees only the proposal and statements up to that day, and the chat model checks its points against his: `recall` is the share of his points it raised, `contradicted` the number of its own that his reply settles the other way.
 
-Both need `DATABASE_URL` and the inference variables, and only read the database, so production can be used with `PGOPTIONS='-c default_transaction_read_only=on'`. Claude Code runs without the settings, CLAUDE.md and skills of whoever runs it, and its answers count against that account's usage.
+`benchmark/decisions.rb` measures the narrower question of predicting the decision itself. Each question in `benchmark/decisions.yml` is a decision he made, scored against what he decided.
+
+Both take the same options. The consultant is the chat model itself (`--consultant heroku`) or Claude Code with a given model (`--consultant opus`), optionally with the skill (`--skill skills/blade/SKILL.md`). Each question is asked without tools and with `search_matz` and `matz_timeline` capped at its date. Tune on `--set tune` and keep `--set check` for confirming a change; `--baseline-from DIR` reuses the answers without tools from an earlier run. `benchmark/workflow.rb` sends the requests in `benchmark/workflow.yml` to Claude Code with and without the skill, through the server at `BLADE_MCP_URL` (default `https://blade.ruby-lang.org/mcp`, with `BLADE_MCP_TOKEN`), and reports whether the answers route each request to whoever decides it and find the past discussion asked for.
+
+All three need `DATABASE_URL` and the inference variables, and only read the database, so production can be used with `PGOPTIONS='-c default_transaction_read_only=on'`. Claude Code runs without the settings, CLAUDE.md and skills of whoever runs it, and its answers count against that account's usage.
 
 ```
+bundle exec ruby benchmark/gaps.rb --skill skills/blade/SKILL.md --set tune tmp/gaps
 bundle exec ruby benchmark/decisions.rb --consultant sonnet --skill skills/blade/SKILL.md --set tune tmp/sonnet
 bundle exec ruby benchmark/workflow.rb --models sonnet,opus tmp/workflow.json
 ```

@@ -1,0 +1,880 @@
+# Proposals that matz answered on bugs.ruby-lang.org after the models' training data ends, and what he actually asked
+# for in that answer. A consultant sees the proposal as it stood at date_to, the day before his first substantive
+# reply, and statements dated up to date_to, and has to name the conditions, objections and questions he will raise.
+# Every ask is taken from matz's own note, cited by its source. Tune on the tune set and leave the check set for
+# confirming a change, so that a change is not fitted to the questions measuring it.
+
+- id: abstract-method-error
+  set: tune
+  issue: 18915
+  date_to: 2026-06-10
+  proposal: >-
+    Feature #18915 asks for a new exception class for a method that a subclass is required to define but did not, so
+    that code stops misusing NotImplementedError for it. The thread has argued over which existing class to reuse and
+    which superclass a new one should have, with NoMethodError and StandardError both raised, and over the worry that
+    a bare rescue would swallow it. A summary of the RubyKaigi hallway discussion puts two names on the table,
+    AbstractMethodError from Java and SubclassResponsibility from Smalltalk, and asks matz to settle the direction.
+  asks:
+    - ask: >-
+        The new class must inherit from ScriptError, not StandardError, because failing to define a method a subclass
+        is required to provide is a problem in the program itself, of the same kind as SyntaxError or LoadError,
+        and NotImplementedError already inherits from ScriptError, which makes the new class its natural sibling.
+      source: '#18915 note-22'
+    - ask: >-
+        Not inheriting from StandardError is what answers the worry raised earlier in the thread: a bare rescue will
+        not swallow it, so the mistake surfaces during development, while frameworks that rescue Exception, such as
+        Minitest, still catch and report it.
+      source: '#18915 note-22'
+    - ask: >-
+        NoMethodError must not be reused, because it inherits from StandardError and would be caught by a bare rescue.
+      source: '#18915 note-22'
+    - ask: >-
+        The name has to keep the Error suffix for consistency with the closely related NotImplementedError. Lacking
+        the suffix would not be a problem by itself, since Ruby has exception classes such as Interrupt that do not
+        end in Error, and SubclassResponsibility expresses the intent well, but consistency decides it.
+      source: '#18915 note-22'
+
+- id: proc-refined
+  set: tune
+  issue: 22097
+  date_to: 2026-07-08
+  proposal: >-
+    Feature #22097 proposes Proc#with_refinements(mod, ...), which returns a copy of the proc whose body runs with the
+    given refinement modules activated, leaving the receiver unchanged. It is the successor to #16461, which was
+    suspended over its semantics. The thread has settled the semantics and the implementation, and the name
+    with_refinements is carried over from the original proposal.
+  asks:
+    - ask: >-
+        The semantics are no longer the problem; the name is. with_refinements is too long.
+      source: '#22097 note-19'
+    - ask: >-
+        The name has to make clear whether the method returns a copy or mutates the receiver, which a past participle
+        such as refined does by word form alone, since it cannot be read as a command, with Enumerable#lazy as a
+        precedent for an adjective-like name returning a derived object.
+      source: '#22097 note-19'
+    - ask: >-
+        shugo, as the author, has to find the replacement name acceptable before it is adopted.
+      source: '#22097 note-19'
+
+- id: rb-process-status
+  set: tune
+  issue: 21704
+  date_to: 2026-07-08
+  proposal: >-
+    Feature #21704 asks to expose the C function rb_process_status_for to C extensions, so that fiber scheduler
+    implementations such as an io_uring based process_wait can build a Process::Status object instead of reimplementing
+    it. The function already exists internally; the request is to make it public API under that name.
+  asks:
+    - ask: >-
+        rb_process_status() is slightly preferable to rb_process_status_for(), because the _for suffix does not add
+        much information here.
+      source: '#21704 note-5'
+    - ask: >-
+        The final decision on the name and the exact signature is ioquatix's, since this is fiber scheduler territory.
+      source: '#21704 note-5'
+
+- id: string-bit-ops
+  set: tune
+  issue: 22118
+  date_to: 2026-07-08
+  proposal: >-
+    Feature #22118 is the minimal first batch of bit operations on String for byte buffers, cut down from the larger
+    #22082. It has single-bit access and modification, bit_count, and a bitwise_and/or/xor/not family with destructive
+    variants, plus a keyword for bit order within a byte. The single-bit reader is proposed to return true or false so
+    that it reads well in a condition, and the writers exist only in a destructive form, with the question of whether
+    they should carry a bang left open. A face-to-face note in the thread records matz disliking the lsb_first: keyword
+    and shugo suggesting an encoding or internal flag instead.
+  asks:
+    - ask: >-
+        The single-bit reader must return 0, 1 or nil, consistent with Integer#[] and useful for arithmetic and for
+        copying bits between buffers. A boolean return would silently conflate a clear bit with an out-of-range
+        offset and hide off-by-one bugs.
+      source: '#22118 note-5'
+    - ask: >-
+        For the conditional use case, add a predicate bit_set?(offset, ...) returning true or false, and nil out of
+        range. It pairs with the bit_set writer and matches Integer's bit predicates such as allbits?.
+      source: '#22118 note-5'
+    - ask: >-
+        The destructive-only writers take no bang, following the setbyte precedent: a bang marks the dangerous one of
+        a pair, and there is no pair here. A non-destructive variant that copies the whole buffer for one bit has
+        little use, and str.dup.bit_set(i) is available.
+      source: '#22118 note-5'
+    - ask: >-
+        A length mismatch in a binary bitwise_* operation must raise ArgumentError. Silent zero-extension would let
+        corrupted results flow downstream in the typical use cases, checksums and masks, and a caller who wants
+        padding can ljust explicitly.
+      source: '#22118 note-5'
+    - ask: >-
+        The encoding has to be specified: the operations treat the receiver as bytes, and the encoding of the result
+        must be stated, BINARY being the suggestion for non-destructive results.
+      source: '#22118 note-5'
+    - ask: >-
+        The bit-order keyword must be accepted by every bit_* method with the same default, since a getter and a
+        setter disagreeing on bit addressing would be disastrous.
+      source: '#22118 note-5'
+    - ask: >-
+        Out-of-range offsets are lenient on reads and strict on writes: the reader returns nil like getbyte, and the
+        writers raise IndexError like setbyte.
+      source: '#22118 note-5'
+
+- id: method-defined-private
+  set: tune
+  issue: 22297
+  date_to: 2026-09-10
+  proposal: >-
+    Feature #22297 reports that Active Record checks whether a method exists regardless of its visibility before
+    generating one, writing method_defined?(name) || private_method_defined?(name) in hot spots, which costs two
+    method lookups. It asks for a single call that ignores visibility, leaving the shape open between a new method, a
+    keyword argument such as include_private:, and an optional positional argument on method_defined?.
+  asks:
+    - ask: >-
+        A new method is not the answer: the only difference from method_defined? would be visibility, and there is no
+        good name for it.
+      source: '#22297 note-1'
+    - ask: >-
+        An optional positional argument is simpler and is what consistency with respond_to?(name, include_all) calls
+        for, giving method_defined?(name, inherit = true, include_all = false).
+      source: '#22297 note-1'
+    - ask: >-
+        The argument goes only on method_defined?. public_method_defined?, private_method_defined? and
+        protected_method_defined? already specify the visibility by name.
+      source: '#22297 note-1'
+
+- id: bit-count
+  set: tune
+  issue: 20163
+  date_to: 2026-07-08
+  proposal: >-
+    Feature #20163 proposes Integer#bit_count, the number of one bits in the binary representation. Other languages
+    call the operation popcount or count_ones. The proposal defines it on the absolute value, so that (-19).bit_count
+    is 3 just like 19.bit_count, and argues bit_count over popcount on readability grounds. matz has earlier asked in
+    the thread what the real-world use case is.
+  asks:
+    - ask: >-
+        On a negative integer it must raise ArgumentError instead of using the absolute value. A negative integer in
+        Ruby is conceptually an infinite two's complement bit string, so its population count is not well defined, and
+        silently using the absolute value could mask bugs.
+      source: '#20163 note-34'
+    - ask: >-
+        The name bit_count holds up, because in Ruby count means counting matching or present things, as Array#count
+        and String#count do, as opposed to length, which is the trivial total extent, and it is clearly distinguished
+        from bit_length.
+      source: '#20163 note-34'
+    - ask: >-
+        If the same operation is later added to String it has to use this same name, since it fits the bit_* and
+        bitwise_* vocabulary being discussed for String in #22082 and #22118.
+      source: '#20163 note-34'
+
+- id: range-clamp
+  set: tune
+  issue: 22175
+  date_to: 2026-07-08
+  proposal: >-
+    Feature #22175 proposes Range#clamp(min, max) and Range#clamp(bounds), which clamp both ends of a range, as a range
+    counterpart of Comparable#clamp. The thread points at the older Feature #16757, which asks for Range#intersection
+    or Range#& giving the overlap of two ranges, and notes that the two often produce the same result, so the proposal
+    has to say why Ruby should get this one rather than that one.
+  asks:
+    - ask: >-
+        They are different operations even though they often produce the same result, and accepting clamp neither
+        carries intersection nor precludes it; that discussion belongs in #16757.
+      source: '#22175 note-9'
+    - ask: >-
+        clamp is asymmetric by design: its argument is bounds, not a peer range. That is why the two-argument form
+        clamp(min, max) makes sense and why returning an empty range at the nearest bound is a natural answer for
+        disjoint input.
+      source: '#22175 note-9'
+    - ask: >-
+        A symmetric intersection would have to decide between nil and an empty range for disjoint inputs, with no
+        obviously right answer.
+      source: '#22175 note-9'
+    - ask: >-
+        Once intersection exists people would naturally expect union, and Range#union cannot be defined in general,
+        because the union of two ranges may be discontiguous.
+      source: '#22175 note-9'
+
+- id: module-descendants
+  set: tune
+  issue: 9779
+  date_to: 2026-08-05
+  proposal: >-
+    Feature #9779 proposes a descendants method returning the classes and modules that inherit from or include the
+    receiver. Class#subclasses already exists, and Class#descendants was postponed in #14394. The thread leaves two
+    points open: whether the method belongs on Class or on Module, and whether the result should include the receiver
+    itself, as ancestors does.
+  asks:
+    - ask: >-
+        It belongs on Module, not Class. Class#subclasses already lets the transitive closure be written in Ruby for
+        classes, while modules have no equivalent primitive, so Module is where the method actually adds something,
+        and defining it there gives Class the method for free.
+      source: '#9779 note-6'
+    - ask: >-
+        Not including self is fine. It departs from ancestors, but it agrees with Class#subclasses and with
+        ActiveSupport's descendants, and [mod, *mod.descendants] is available when the receiver is wanted.
+      source: '#9779 note-6'
+    - ask: >-
+        This settles the question left open in #14394, which can be closed once the method is merged.
+      source: '#9779 note-6'
+
+- id: smile-argument
+  set: tune
+  issue: 21973
+  date_to: 2026-06-10
+  proposal: >-
+    Feature #21973 proposes ending an argument list with ":)", as in some_method(arg, :), to pass each keyword
+    parameter of the method from the local variable of the same name. The case made for it is brevity at the call
+    site, in the same spirit as the keyword shorthand introduced in 3.1.
+  asks:
+    - ask: >-
+        The gain is small, because the keyword shorthand some_method(arg, smile:, hugging:) already covers most of the
+        brevity while keeping the keyword names visible at the call site.
+      source: '#21973 note-3'
+    - ask: >-
+        What ":)" adds is making the names themselves disappear, so the call site no longer shows what is being
+        passed and the reader has to look up the method definition.
+      source: '#21973 note-3'
+    - ask: >-
+        The keyword names at the call site are not noise: they serve as documentation, and they make a call break
+        loudly when the method later renames a keyword, while a ":)" caller may silently pick up an unrelated local
+        variable or fail more confusingly.
+      source: '#21973 note-3'
+    - ask: >-
+        Concise and easy to read are not the same thing, and here the names are worth keeping.
+      source: '#21973 note-3'
+
+- id: io-buffer-index
+  set: tune
+  issue: 22231
+  date_to: 2026-08-05
+  proposal: >-
+    Feature #22231 proposes IO::Buffer#index, to find a byte in a buffer without copying it, taking an offset and a
+    length. It is presented as the first of a family, with #rindex and #each_until named as the follow-ups the author
+    has in mind. The thread leaves open what should happen when the offset or the length fall outside the buffer.
+  asks:
+    - ask: >-
+        The design has to be worked out with ioquatix, who is in charge of IO::Buffer, before proceeding.
+      source: '#22231 note-2'
+    - ask: >-
+        An out-of-range offset or length must return nil, following String#index. Finding nothing and searching an
+        empty range are the same answer, and raising makes ordinary scanning loops awkward.
+      source: '#22231 note-2'
+    - ask: >-
+        offset == size has to be a valid empty range, so that a loop such as i = buffer.index(byte, i + 1) terminates
+        rather than raises.
+      source: '#22231 note-2'
+    - ask: >-
+        The follow-ups must not turn IO::Buffer into a second String under another name; Ruby is not to have two
+        string classes. Each addition has to be justified by what IO::Buffer is for, working on memory it does not
+        own, and not by String having a method of that name.
+      source: '#22231 note-2'
+    - ask: >-
+        The follow-ups have to be proposed one at a time, each with its own use case.
+      source: '#22231 note-2'
+
+- id: float-range-warning
+  set: tune
+  issue: 22085
+  date_to: 2026-06-10
+  proposal: >-
+    Feature #22085 asks that String#to_f and Kernel#Float stop emitting the "Float ... out of range" warning, which
+    they inherit from the parser's treatment of float literals. The argument is that the warning is not actionable
+    when the string comes from user input or external data, and the examples in the ticket are all values too large
+    to represent, which convert to Infinity.
+  asks:
+    - ask: >-
+        The scope as written is wrong: the warning is emitted on ERANGE in general, so it also covers underflow to
+        zero, for example "1e-9999".to_f returning 0.0 with the same warning, which the ticket's examples do not
+        cover.
+      source: '#22085 note-1'
+    - ask: >-
+        Dropping the warning for the overflow case is reasonable, because Infinity announces itself: it propagates
+        through arithmetic and is easy to notice in the result.
+      source: '#22085 note-1'
+    - ask: >-
+        The warning should be kept for underflow to zero, where a non-zero input silently becomes 0.0 and can quietly
+        break later computation.
+      source: '#22085 note-1'
+    - ask: >-
+        The change should therefore be limited to the overflow case rather than dropping the warning outright.
+      source: '#22085 note-1'
+
+- id: binary-heap
+  set: tune
+  issue: 21720
+  date_to: 2026-06-10
+  proposal: >-
+    Feature #21720 asks for a binary heap or priority queue in Ruby's standard library, either a Heap class with push,
+    pop and peek or a module in the style of Python's heapq. The case made is that users keep reimplementing it or
+    reaching for a gem, and that a data structure this fundamental belongs with the language.
+  asks:
+    - ask: >-
+        That they are useful is agreed; that they belong in the standard library rather than in gems is not.
+      source: '#21720 note-4'
+    - ask: >-
+        They should first be released as gems, to gauge the community's response.
+      source: '#21720 note-4'
+
+- id: socket-gethostbyname
+  set: tune
+  issue: 17944
+  date_to: 2026-06-10
+  proposal: >-
+    Feature #17944 asks to remove Socket.gethostbyaddr and Socket.gethostbyname. They have been deprecated in the
+    documentation since #13097, and the reason given for removing them now is that static analysis tools flag them as
+    unsafe.
+  asks:
+    - ask: >-
+        What carries the removal is that nobody seemed to be using them, which the ticket's static analysis argument
+        does not establish.
+      source: '#17944 note-4'
+    - ask: >-
+        They were not good API to begin with, having a Perl-like design, which is the second half of the reason to
+        take them out rather than leave them deprecated.
+      source: '#17944 note-4'
+
+- id: string-bit-scope
+  set: tune
+  issue: 22082
+  date_to: 2026-06-10
+  proposal: >-
+    Feature #22082 proposes more than twenty bit operation methods on String for binary data, covering single bit
+    access and modification, bit_count, a bitwise_and/or/xor/not family, and iterators such as each_bit_run, bit_runs
+    and bit_offsets. The alternative it weighs and rejects is a separate BitSet class. The thread has also raised the
+    design of the bit-order keyword, lsb_first versus msb_first.
+  asks:
+    - ask: >-
+        String is the right place: Ruby treats binary data as String everywhere, in File.read, Socket and
+        pack/unpack, and asking users to convert to a separate BitSet object for bit-level access does not fit that
+        model.
+      source: '#22082 note-13'
+    - ask: >-
+        More than twenty methods at once is too many to introduce together.
+      source: '#22082 note-13'
+    - ask: >-
+        A minimal first subset has to be proposed instead, covering the fundamentals: basic single-bit access and
+        modification, bit_count, and the bulk bitwise_* family.
+      source: '#22082 note-13'
+    - ask: >-
+        The iterator and run-related methods, each_bit_run, bit_runs and bit_offsets, come later, and only if they
+        prove necessary.
+      source: '#22082 note-13'
+    - ask: >-
+        The bit-order keyword design, lsb_first versus msb_first, has to be settled as part of that first subset.
+      source: '#22082 note-13'
+
+- id: computed-hash-keys
+  set: tune
+  issue: 22108
+  date_to: 2026-07-08
+  proposal: >-
+    Feature #22108 proposes writing a hash key computed by an expression in label style, as {(expr): value}, so that
+    keys other than Symbols can use the colon form. The parentheses are what distinguishes it from the existing label
+    syntax. The case made is uniformity across key types, and the ticket suggests that the hash rocket could
+    eventually be retired from hash literals.
+  asks:
+    - ask: >-
+        The value of the label syntax is its simple reading, that a colon-terminated key is always a Symbol, and
+        (expr): breaks that invariant.
+      source: '#22108 note-23'
+    - ask: >-
+        Readers would then have to check for parentheses to know the type of the key, which is a real cost in
+        readability.
+      source: '#22108 note-23'
+    - ask: >-
+        The gain is small in return, since expr => value already works, is short and is unambiguous.
+      source: '#22108 note-23'
+    - ask: >-
+        There is no intention of deprecating => in hash literals. It is not a legacy syntax to be retired: it is the
+        general form, and the colon syntax is a shorthand for the common Symbol case.
+      source: '#22108 note-23'
+
+- id: ractor-at-exit
+  set: tune
+  issue: 22139
+  date_to: 2026-07-08
+  proposal: >-
+    Feature #22139 reports that END {} and Kernel#at_exit called inside a non-main Ractor register a block that runs at
+    process exit, with self still the terminated Ractor. It offers three options: (1) prohibit them in non-main
+    Ractors, (2) run the block when that Ractor ends, and (3) run it at process exit on the main Ractor, as defined
+    behavior.
+  asks:
+    - ask: >-
+        Option 1, prohibition, is the right move to start with, because the current behavior is accidental rather than
+        designed.
+      source: '#22139 note-4'
+    - ask: >-
+        Option 2 changes the meaning of at_exit too much.
+      source: '#22139 note-4'
+    - ask: >-
+        Option 3 is semantically consistent, but it is doubtful that anyone actually wants blocks registered in a
+        Ractor to fire on the main Ractor at process exit, and the sharing and inheritance of reachable objects is
+        also subtle.
+      source: '#22139 note-4'
+    - ask: >-
+        The prohibition can be relaxed toward option 3 later if real use cases emerge, since going from an error to
+        defined behavior is compatible.
+      source: '#22139 note-4'
+
+- id: sprintf-debug
+  set: tune
+  issue: 22136
+  date_to: 2026-07-08
+  proposal: >-
+    Feature #22136 points out that sprintf raises ArgumentError for arguments beyond what the format string uses only
+    when $DEBUG is set, as with ruby -d, and warns otherwise. It asks whether that should stay. The behavior was
+    decided deliberately in 2005, when the choice was made to raise under -d rather than under -w.
+  asks:
+    - ask: >-
+        The $DEBUG flag is meant to add diagnostic output, not to change program behavior, and raising only under -d
+        violates that expectation.
+      source: '#22136 note-4'
+    - ask: >-
+        Raising under -d can prevent the very debugging session it was supposed to help.
+      source: '#22136 note-4'
+    - ask: >-
+        A warning on $stderr is enough.
+      source: '#22136 note-4'
+
+- id: rubyvm-ast-deprecation
+  set: tune
+  issue: 21826
+  date_to: 2026-08-05
+  proposal: >-
+    Feature #21826 proposes deprecating RubyVM::AbstractSyntaxTree with a runtime warning, now that Prism is the
+    default parser. A documentation change recommending Prism has already landed. The replacements the ticket points
+    at, Thread::Backtrace::Location#source_range in #22212 and Method#syntax_tree in #21795, are up for approval as
+    new features of Ruby 4.1. The thread also argues that nothing under RubyVM carries a compatibility promise.
+  asks:
+    - ask: >-
+        Not yet. The documentation change that landed is the right amount for now.
+      source: '#21826 note-11'
+    - ask: >-
+        The replacements will both be new in 4.1, and warning people out of an unstable API and into an experimental
+        one is not an improvement for them.
+      source: '#21826 note-11'
+    - ask: >-
+        error_highlight and Rails are still on of and node_id_for_backtrace_location.
+      source: '#21826 note-11'
+    - ask: >-
+        Revisit once the replacements are no longer experimental and those users have moved.
+      source: '#21826 note-11'
+    - ask: >-
+        The principle that anything under RubyVM carries no compatibility promise is agreed, which is why no long
+        deprecation period will be needed when the time comes.
+      source: '#21826 note-11'
+
+- id: io-buffer-freeze
+  set: tune
+  issue: 22274
+  date_to: 2026-09-09
+  proposal: >-
+    Feature #22274 proposes making IO::Buffer non-experimental in Ruby 4.1. Two semantic questions are open in the
+    thread. One is whether a slice should be validated against the absolute address of its source's memory or track a
+    logical offset and length within the source. The other is whether a frozen IO::Buffer may still accept writes such
+    as set_string, which is put forward as a way to express the locked state of a shared mapping.
+  asks:
+    - ask: >-
+        A slice must track a logical offset and length range of its source rather than an absolute address, because a
+        reallocation landing overlapping but shifted from the old one leaves the slice valid? while it refers to a
+        different logical region, and a write through it silently damages live data, which is worse than an
+        invalidated slice.
+      source: '#22274 note-5'
+    - ask: >-
+        The offset-based design costs the same on every access and is the model that JRuby and TruffleRuby can
+        implement.
+      source: '#22274 note-5'
+    - ask: >-
+        The slice rule has to be specified rather than left implementation-defined.
+      source: '#22274 note-5'
+    - ask: >-
+        A frozen IO::Buffer that still accepts set_string is surprising. Freezing means the object's own state is
+        immutable, which is how it was taken in #22291, and that meaning is to be kept.
+      source: '#22274 note-5'
+    - ask: >-
+        A shared mapping changing from outside is the same as a frozen object holding a reference to a mutable one,
+        and does not make freezing mean something else.
+      source: '#22274 note-5'
+    - ask: >-
+        A fast path for the locked state has to use a separate name instead of freeze.
+      source: '#22274 note-5'
+
+- id: hash-colon-space
+  set: tune
+  issue: 22111
+  date_to: 2026-07-08
+  proposal: >-
+    Feature #22111 proposes allowing expr : value for non-symbolic hash keys, completing the colon family so that every
+    key type can be written with a colon. A bareword or quoted string followed by a colon with no space stays a Symbol
+    label, while the same expression followed by a colon with a space becomes a computed key, so { a: 1 } and
+    { a : 1 } differ. The case made is uniformity, reducing the overloading of => which now also serves rightward
+    assignment, pattern capture and rescue, and eventually retiring the rocket from hash literals. The related
+    #22108, which uses parentheses instead of spacing, is under discussion at the same time.
+  asks:
+    - ask: >-
+        { a: 1 } and { a : 1 } meaning completely different things is unacceptable, and the objection is stronger
+        here than to #22108.
+      source: '#22111 note-37'
+    - ask: >-
+        Making whitespace around a colon semantically significant would be a source of silent bugs: a single
+        keystroke, a formatter or a copy-paste could change the meaning of a program with no visible warning.
+      source: '#22111 note-37'
+    - ask: >-
+        It would also turn today's syntax errors into programs that run and do the wrong thing.
+      source: '#22111 note-37'
+    - ask: >-
+        expr => value already covers non-Symbol keys, and there is no plan to retire => from hash literals.
+      source: '#22111 note-37'
+
+- id: ractor-class-ownership
+  set: tune
+  issue: 22226
+  date_to: 2026-08-05
+  proposal: >-
+    Feature #22226 gives every class and module an owner, the Ractor that created it, and lets only the owner modify
+    it, replacing the ad-hoc "main Ractor only" rules with one rule keyed on the creator. Reading is unchanged.
+    Section 6 excludes class variables from the relaxation, because the class they are physically stored in can
+    migrate, so writes still require the main Ractor and must not cross the ownership boundary. Section 7 lists the
+    incompatibilities, all of them code that modifies classes from a non-main Ractor. Section 8 leaves open whether
+    freeze and Module#set_temporary_name should be owner-only as well, and how top-level class and module names in
+    non-main Ractors should integrate with Ruby::Box.
+  asks:
+    - ask: >-
+        Asking "did you create this?" instead of "are you the main Ractor?" is the right question, and Ractor is
+        experimental precisely so that corrections of this kind can be made, so the incompatibilities listed in
+        section 7 are acceptable as they stand.
+      source: '#22226 note-6'
+    - ask: >-
+        The class variable result in section 6 is uncomfortable: nobody can write a class variable of a class created
+        in a non-main Ractor, neither its owner nor the main Ractor, which is less than the "full use of the classes
+        you create" the rest of the proposal promises.
+      source: '#22226 note-6'
+    - ask: >-
+        That is expected to change eventually and needs more thought, but the current behavior is accepted as an
+        experiment rather than holding the rest of the proposal back for it.
+      source: '#22226 note-6'
+    - ask: >-
+        freeze and Module#set_temporary_name must be made owner-only as well. A non-owner freezing somebody else's
+        class is a hole, and it lets a third party make a class permanently unmodifiable.
+      source: '#22226 note-6'
+    - ask: >-
+        Top-level class and module names in non-main Ractors, and the integration with Ruby::Box, have to be settled
+        together with the author of Ruby::Box, in a separate discussion.
+      source: '#22226 note-6'
+
+- id: per-ractor-gc
+  set: tune
+  issue: 22227
+  date_to: 2026-08-05
+  proposal: >-
+    Feature #22227 makes the default GC operate per Ractor: each Ractor owns an objspace and collects it on its own
+    thread, with a stop-the-world global GC only for shareable objects, memory retained across Ractor boundaries and
+    the heaps of dead Ractors. Section 4 reports that allocation-heavy Ractor programs then scale like forked
+    processes while single-Ractor workloads stay within a few percent. Section 3 lists the compatibility changes,
+    among them Ractor#value becoming a one-shot ownership transfer that raises on a second call. The reason given is
+    that special-casing repeat calls from the same Ractor, or shareable values only, would make the API's behavior
+    depend on the caller and the value's type, so the simple uniform rule was chosen.
+  asks:
+    - ask: >-
+        The direction carries because Ractors were designed for exactly the workloads where they currently lose to
+        fork, the section 4 numbers are convincing, and keeping single-Ractor programs within a few percent was the
+        right constraint to hold to.
+      source: '#22227 note-5'
+    - ask: >-
+        Ractor#value becoming one-shot is the one point not ready to be decided.
+      source: '#22227 note-5'
+    - ask: >-
+        The reason given in section 3 is not disqualifying: the Ractor API already depends on the shareable and
+        unshareable distinction everywhere, since it is the central distinction of the whole design.
+      source: '#22227 note-5'
+    - ask: >-
+        For a shareable return value the objspace absorb happens on the first call, so returning the same object again
+        afterwards seems harmless.
+      source: '#22227 note-5'
+    - ask: >-
+        An explanation is wanted, before the decision, of whether the alternative is difficult in the implementation
+        or whether there is another reason to prefer the uniform rule.
+      source: '#22227 note-5'
+
+- id: process-id
+  set: check
+  issue: 22093
+  date_to: 2026-06-10
+  proposal: >-
+    Feature #22093 proposes Process::ID, an Integer-like object that Process.spawn, parent-side fork and IO#pid would
+    return instead of an Integer, with #wait returning a Process::Status and #detach, in the spirit of
+    Process::Status. Code passing it to process APIs keeps working through #to_int; code testing Integer === pid would
+    change. The case made is the ergonomics of pid.wait and pid.detach.
+  asks:
+    - ask: >-
+        A PID is just a number, not a handle in the OS sense, so Process::ID would look handle-like without the safety
+        a real handle such as pidfd would give.
+      source: '#22093 note-4'
+    - ask: >-
+        Unlike Process::Status, it would carry only a single integer and exist just to attach methods to.
+      source: '#22093 note-4'
+    - ask: >-
+        PIDs are returned by many other APIs, Process.pid, ppid, waitpid and PID files among them, so changing only
+        spawn, fork and IO#pid is inconsistent.
+      source: '#22093 note-4'
+    - ask: >-
+        Changing all of those instead would broaden the compatibility impact.
+      source: '#22093 note-4'
+    - ask: >-
+        For the modest ergonomic gain, PIDs stay Integer for now.
+      source: '#22093 note-4'
+
+- id: integer-exception-false
+  set: check
+  issue: 22080
+  date_to: 2026-06-10
+  proposal: >-
+    Bug #22080 reports that Integer(obj, exception: false) raises TypeError when obj#to_str returns something other
+    than a String, but returns nil when obj#to_int returns something other than an Integer. The documentation says
+    that with exception: false an exception of any kind is suppressed, so the report treats the raising to_str case as
+    the bug and asks for it to return nil like the other.
+  asks:
+    - ask: >-
+        The diagnosis is the other way around. exception: false is meant to suppress conversion-failure exceptions,
+        such as Integer("abc") raising ArgumentError.
+      source: '#22080 note-2'
+    - ask: >-
+        It is not meant to suppress contract violations such as to_int or to_str returning a value of the wrong type.
+        Those are programming errors in the converter, not failures of the conversion, and returning nil would
+        silently hide bugs.
+      source: '#22080 note-2'
+    - ask: >-
+        So the current to_str behavior, raising TypeError, is the correct one, and the to_int behavior returning nil
+        is what should change to raise.
+      source: '#22080 note-2'
+    - ask: >-
+        The documentation has to be updated so that it no longer says an exception of any kind is suppressed.
+      source: '#22080 note-2'
+    - ask: >-
+        If making to_int raise turns out to break real-world code, both can be aligned to nil instead, with the
+        documentation rewritten accordingly, but the principled direction is worth trying first.
+      source: '#22080 note-2'
+
+- id: ambiguous-slash
+  set: check
+  issue: 21994
+  date_to: 2026-06-10
+  proposal: >-
+    Bug #21994 shows that when a local variable foo exists, a call foo /re/ with a regexp literal cannot be written
+    without parentheses. The discussion moved to the "ambiguous first argument" warnings the parser gives for a method
+    call followed by /, +, -, *, ** or %, and matz has written in the ticket that he is inclined to remove the
+    ambiguous / warning, since it does not catch the genuinely confusing case and discourages a DSL style such as
+    rule /regex/ do ... end, and that he would confirm it at the next developers' meeting. The meeting left the
+    decision to him. What is still open is the scope of the change.
+  asks:
+    - ask: >-
+        The change is limited to the ambiguous / warning. The similar warnings for +, -, *, ** and % stay.
+      source: '#21994 note-7'
+    - ask: >-
+        A regexp literal, like the matched-delimiter literals %r/.../, %w[...] and %i[...], is self-identifying once
+        the full token is read, and %r/.../ already does not warn, so dropping the warning simply aligns the regexp
+        case with the percent literals.
+      source: '#21994 note-7'
+    - ask: >-
+        For +, -, * and ** both the unary and the binary interpretation remain plausible to the reader even after the
+        whole token is read, so the warning still earns its keep there.
+      source: '#21994 note-7'
+
+- id: pack-alignment
+  set: check
+  issue: 22185
+  date_to: 2026-07-08
+  proposal: >-
+    Feature #22185 proposes alignment in Array#pack and String#unpack templates: a directive x!N or x!i that advances
+    to an N-byte boundary or to the native alignment of another directive, @! for alignment relative to the whole
+    string, and an alignment mode !{...} that inserts alignment before each numeric directive, as C structure layout
+    does.
+  asks:
+    - ask: >-
+        The alignment directives x! and @! are accepted. They fill a real gap, since describing C-like structure
+        layouts currently requires manual, ABI-dependent padding calculation, and the directive-alignment form x!i
+        solves that nicely.
+      source: '#22185 note-2'
+    - ask: >-
+        The alignment mode !{...} is not accepted yet: a new grouping syntax in pack templates needs more
+        consideration.
+      source: '#22185 note-2'
+    - ask: >-
+        Start with x! and @!, and revisit the mode later.
+      source: '#22185 note-2'
+
+- id: shareable-ivars
+  set: check
+  issue: 22291
+  date_to: 2026-09-09
+  proposal: >-
+    Bug #22291 reports that some Ractor-shareable objects are not frozen, among them Ractor, Ractor::Port, isolated
+    procs and ENV. They can hold unshareable instance variables, and reads from non-main Ractors are rejected only
+    while the object is unfrozen, so freezing such an object opens a hole. The thread weighs two fixes: forbid
+    instance variable writes on shareable objects, or freeze those objects.
+  asks:
+    - ask: >-
+        Forbidding instance variables is the right approach, because freezing means the object's own state is
+        immutable, not just its instance variables, so these objects should not be frozen.
+      source: '#22291 note-4'
+    - ask: >-
+        It has to be defined as an invariant: a shareable object that is not frozen never has instance variables.
+      source: '#22291 note-4'
+    - ask: >-
+        The invariant must also hold when C extensions define such objects in the future.
+      source: '#22291 note-4'
+    - ask: >-
+        Since ENV is not an experimental API, the impact on existing code that sets instance variables on it has to be
+        checked.
+      source: '#22291 note-4'
+    - ask: >-
+        As a spec change it is not backported.
+      source: '#22291 note-4'
+
+- id: splat-duplicate-warning
+  set: check
+  issue: 22266
+  date_to: 2026-09-09
+  proposal: >-
+    Feature #22266 notes that Ruby warns about a duplicated key in {h: 1, **{h: 1}}, where a literal hash is splatted
+    into another, but not when the splatted hash is a variable, as in h = {h:}; {h:, **h}. It proposes dropping the
+    warning in the literal case, on the grounds that the duplicate is in a different hash and that nobody writes such
+    code by hand.
+  asks:
+    - ask: >-
+        The current behavior is slightly better: in {h: 1, **{h: 1}} the overwrite is always obvious from the source,
+        so warning about it is a consistent attitude.
+      source: '#22266 note-1'
+    - ask: >-
+        Whether a warning is emitted should not depend on whether the implementation merges the literal hashes.
+      source: '#22266 note-1'
+    - ask: >-
+        The opinion is not a strong one. A benefit other than consistency, such as a real-world case where the warning
+        causes trouble, would be enough not to reject it.
+      source: '#22266 note-1'
+
+- id: byte-read-spec
+  set: check
+  issue: 22230
+  date_to: 2026-08-05
+  proposal: >-
+    Misc #22230 asks whether ruby/spec should define the behavior CRuby has, raising IOError for byte-oriented reads
+    while the character buffer is not empty, for example after getc with an encoding conversion in play, or whether it
+    should be left implementation-defined. The thread argues that the IOError follows from CRuby's internal buffering
+    rather than from a language rule.
+  asks:
+    - ask: >-
+        Leave it implementation-defined. Other implementations should be free to behave differently.
+      source: '#22230 note-2'
+    - ask: >-
+        The IOError is a consequence of CRuby having a character buffer and avoiding the reverse conversion back to
+        bytes, not a decision about what the language promises.
+      source: '#22230 note-2'
+    - ask: >-
+        An implementation that converts back in getc and keeps no character buffer at all has no reason to raise, and
+        must not be forced to emulate a buffer it does not have.
+      source: '#22230 note-2'
+    - ask: >-
+        CRuby is not even consistent with itself: after ungetc, byte reads work when no converter is in play and fail
+        when one is, which is not a rule to hold every implementation to.
+      source: '#22230 note-2'
+
+- id: svar-fiber-local
+  set: check
+  issue: 22216
+  date_to: 2026-08-06
+  proposal: >-
+    Bug #22216 reports that the special variables, the Regexp backref $~ and its family and the lastline $_, are
+    written into the local frame, so they are shared when a proc is captured across threads, and are fundamentally
+    incompatible with Ractor. The thread has converged on making them Fiber-local, as TruffleRuby already does, with a
+    prototype in hand. The open worry raised in it is compatibility: code that reads $1 after Enumerator#next would
+    stop seeing the match, because next runs the block in an internal fiber, and there is also a report of a stale
+    svar_lep bug in the current implementation.
+  asks:
+    - ask: >-
+        The direction is agreed: these should be Fiber-local.
+      source: '#22216 note-18'
+    - ask: >-
+        The rule for the Enumerator#next case is not ready to be decided. Reading $1 after e.next is code people
+        actually write, and breaking it is not acceptable.
+      source: '#22216 note-18'
+    - ask: >-
+        What is wanted is a rule that keeps such code working, not a list of exceptions.
+      source: '#22216 note-18'
+    - ask: >-
+        One idea put forward to consider: a fiber inherits its parent's storage, except non-blocking fibers, which get
+        their own, since sibling fibers under a scheduler are where the visibility problem actually is, while a plain
+        Fiber.new resumed by its parent does not run concurrently with it, so sharing there is safe and matches
+        today's behavior.
+      source: '#22216 note-18'
+    - ask: >-
+        The stale svar_lep bug has to be settled first, because until it is fixed there is no stable baseline to
+        compare against.
+      source: '#22216 note-18'
+
+- id: module-alias-object
+  set: check
+  issue: 22276
+  date_to: 2026-09-09
+  proposal: >-
+    Bug #22276 reports that alias in a module falls back to Object when the method is not found in the module, so a
+    module can alias Kernel#puts and the alias still works when the module is included in a class derived from
+    BasicObject. The behavior is intentional, has tests and appears in the documentation of Module#alias_method, so
+    code such as module M; alias orig_to_s to_s; end exists. Three fixes are offered: remove the fallback and raise
+    NameError, resolve the method at call time from the receiver's ancestors as ZSUPER methods do, or keep the
+    behavior and document it. The reporter judges the call-time resolution best for compatibility.
+  asks:
+    - ask: >-
+        The root cause is that alias in a module treats methods defined in Object specially. That made sense in Ruby
+        1.8, where every class had Object as an ancestor, but it contradicts BasicObject, introduced in 1.9.
+      source: '#22276 note-3'
+    - ask: >-
+        The special treatment should be removed rather than the alias resolved at call time, so the reporter's
+        preferred option is not the one taken.
+      source: '#22276 note-3'
+    - ask: >-
+        A module should be able to alias only its own methods and its ancestors' methods, and aliasing any other
+        method should raise NameError.
+      source: '#22276 note-3'
+    - ask: >-
+        The migration path, such as a deprecation warning before the NameError, is left to the implementer.
+      source: '#22276 note-3'
+
+- id: date-birthday
+  set: check
+  issue: 21972
+  date_to: 2026-06-10
+  proposal: >-
+    Feature #21972 proposes Date.birthday(version = nil) and Date.age(version = nil) in the date library, returning
+    the dates of Ruby's milestones, the day the name was decided in 1993, the first public release in 1995 and the
+    first stable release in 1996, and the years elapsed since them. The case made is that developers cannot
+    programmatically reference Ruby's heritage, which is a missed opportunity to foster affection for the language's
+    identity.
+  asks:
+    - ask: >-
+        Date is a general-purpose calendar class, and Ruby-specific history does not belong embedded in it.
+      source: '#21972 note-8'
+    - ask: >-
+        Ruby's anniversaries are better celebrated by the community than by the standard library.
+      source: '#21972 note-8'
+
+- id: string-bit-region
+  set: check
+  issue: 22279
+  date_to: 2026-09-09
+  proposal: >-
+    Feature #22279 adds region overloads to the String bit methods accepted in #22118, so that bit_set, bit_clear,
+    bit_flip and bit_count act on a contiguous run of bits given as (offset, length) or as a Range, for use with
+    LSB-first packed bitmaps such as Apache Arrow's validity masks. The ticket spells out the contracts: the
+    positional form follows String#[](start, length), the mutations require the whole region to be in range and raise
+    IndexError, bit_count clamps and returns 0 beyond the end, and the single-offset forms and the no-argument
+    bit_count are unchanged. In #22118 the no-argument bit_count was excepted from the bit-order keyword, since a
+    population count over the whole string does not depend on bit numbering.
+  asks:
+    - ask: >-
+        The second positional argument of bit_set, bit_clear and bit_flip is always a length. Setting bits to a given
+        value is the role of bit_put, which may be considered later.
+      source: '#22279 note-2'
+    - ask: >-
+        Now that bit_count takes a region, the exception made in #22118 no longer applies: bit_count has to accept the
+        bit-order keyword in all forms, including the no-argument form.
+      source: '#22279 note-2'
