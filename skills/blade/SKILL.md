@@ -1,11 +1,11 @@
 ---
 name: blade
-description: Research Ruby's design history and predict matz's view with the blade MCP server (the Ruby mailing list archive since 1995 and matz's statements from the lists, bugs.ruby-lang.org and the developers' meeting notes). Use when looking for past discussions of a feature, a library, RubyGems, Bundler, packaging or the release process, checking precedents for a proposal, asking how matz would see a name, an API or a behavior, or preparing a ticket or an agenda item for the developers' meeting. Also for requests like "matz はどう思うか", "過去の議論を探して", "開発者会議に出す前に".
+description: Research Ruby's design history and find what a proposal still needs before matz accepts it, with the blade MCP server (the Ruby mailing list archive since 1995 and matz's statements from the lists, bugs.ruby-lang.org and the developers' meeting notes). Use when looking for past discussions of a feature, a library, RubyGems, Bundler, packaging or the release process, checking precedents for a proposal, asking how matz would see a name, an API or a behavior, or what a proposal is missing, or preparing a ticket or an agenda item for the developers' meeting. Also for requests like "matz はどう思うか", "過去の議論を探して", "開発者会議に出す前に".
 ---
 
 # Ruby design history with blade
 
-The blade MCP server (`https://blade.ruby-lang.org/mcp`, bearer token shared among the core team) answers two questions, what was discussed before and what matz said about it. Use it in daily work to shape a proposal so that it can be accepted by whoever decides it, matz at the developers' meeting or the maintainers of the area. Issues themselves are read with the bugs.ruby-lang.org MCP server.
+The blade MCP server (`https://blade.ruby-lang.org/mcp`, bearer token shared among the core team) answers two questions, what was discussed before and what matz said about it. Use it in daily work to shape a proposal so that it can be accepted by whoever decides it, matz at the developers' meeting or the maintainers of the area, by finding what it is still missing while there is time to fix it. Issues themselves are read with the bugs.ruby-lang.org MCP server.
 
 ## Who decides
 
@@ -33,28 +33,40 @@ Kinds: `accepted` and `rejected` (a proposal), `design` and `naming` (settled), 
 
 Search with the feature's name and with a plain description of the problem, in English and in Japanese, since older discussion is mostly on ruby-dev and ruby-list. Read the hits with `get_message`, follow the thread with `get_thread`, and move to the issue when the mail points to one.
 
-## Predicting matz's view
+## What a proposal still needs
 
-Gather in this order:
+Before a proposal reaches matz, name the conditions he will set, the objections he will raise and the questions he will ask, so that it can answer them first. He rarely answers a proposal whole: he takes it apart and replies to each decision in it.
 
-1. `matz_timeline` on the feature itself, and on the existing methods or syntax the proposal would sit next to.
-2. `search_matz` for how he settled similar questions in the same area: the names he chose, the arguments and behaviors he accepted or turned down.
-3. General principles last.
+So take it apart first. A proposal decides a name, a return value, what happens at the edges (out of range, empty, a mismatch in length), which error is raised, how much lands at once, and who settles the rest. Each is a place he can accept the proposal and still send it back.
 
-Weigh the evidence:
+For each of them, gather in this order:
+
+1. `matz_timeline` on the feature itself, then on the neighbor the decision copies: the method the new one sits beside, the class it extends, the keyword it borrows. What he settled for the neighbor is what he asks the new one to match, down to the return value (`nil` where the neighbor returns `nil`) and which side raises.
+2. `search_matz` for the purpose he has stated for the thing being extended. He justifies an addition by what the receiver is for, and objects when a proposal argues only from another class having a method of that name.
+3. `search_matz` with `kinds: ["condition"]` and the words of the area, for the conditions he attaches there: release it as a gem first and come back with the response, cut it to a minimal first subset and add the rest on demand, propose the follow-ups one at a time each with its own use case, settle the part that is not his with the maintainer of that part, write the specification in the ticket and not only in the pull request.
+
+Weigh what comes back:
 
 - His latest word on a feature outweighs his earlier ones. An acceptance he later put on hold is on hold.
 - What he decided on the feature and its neighbors outweighs a principle he stated about other features.
 - For a name, rely on `naming`, `accepted` and `rejected` statements. A name that appears inside an `opinion` or `design` statement is often a placeholder, not his choice.
 - Prefer his own words to a `reported_by` record when both exist.
-- Look for what his past choices in the area have in common, and expect the new decision to follow it.
+- Look for what his past choices in the area have in common, and expect the new one to follow it.
 
-A statement is evidence of what he said then, not a ruling on the new proposal. State the prediction, the reasons he would give with the quote and source of each, and where the evidence is thin or points both ways.
+Then write the points, each with the quote and source it rests on, and say what the proposal would have to answer:
+
+- A claim the proposal leans on without evidence is a point: that nobody uses what it removes, that the need is real, that nothing will break. He asks for the fact, not for a plan to find it.
+- A decision the proposal leaves open is a point. He does not settle an open question on the proposer's behalf; he asks for a concrete answer to choose from.
+- A gap between his reason and the proposal's is a point even when they reach the same conclusion. He often accepts the thing and rejects the argument for it, and then the next proposal built on that argument fails.
+- Scope is a point of its own. A batch of methods, a syntax and its generalization, a fix and its cleanup: he cuts them apart and takes the smallest piece that stands alone.
+- Leave out the process he does not use. Version targets, deprecation schedules, migration paths and compatibility surveys are points only where the record shows him asking for one; more often he leaves them to the implementer or to the branch maintainers.
+
+A statement is evidence of what he said then, not a ruling on the new proposal. Say where the evidence is thin or points both ways, and keep his view separate from your own advice.
 
 ## Preparing a proposal
 
-1. Find the precedents and the objections raised to similar proposals, by matz or by the maintainers who decide, and check whether the proposal answers each.
-2. Adjust the name, the API shape and the edge-case behavior toward what was accepted before, and keep the alternatives with the reason each was dropped.
+1. Run the section above to find what the proposal still needs from matz, and do the same for the maintainers who decide the rest, with `search` and `from`.
+2. Answer each point in the proposal itself: adjust the name, the API shape and the edge-case behavior toward what was accepted before, and keep the alternatives with the reason each was dropped.
 3. Write the use case in concrete code. Real needs come before accepting a method.
 4. Split the questions by who decides. Settle the maintainers' part on the tracker, and narrow what goes to matz to what only he can decide, such as the name or whether the feature is wanted at all.
 5. For the developers' meeting, draft the agenda comment for the DevMeeting ticket in its required format:

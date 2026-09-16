@@ -5,19 +5,7 @@
 
 require_relative 'support'
 
-options = {consultant: 'heroku', set: 'all', trials: 3, jobs: 4}
-parser = OptionParser.new do |opts|
-  opts.banner = 'Usage: bundle exec ruby benchmark/decisions.rb [options] OUT_DIR'
-  opts.on('--consultant NAME', 'heroku for the chat model of Heroku Managed Inference, or a Claude Code model such as opus')
-  opts.on('--skill PATH', 'Give the consultant this skill along with the tools')
-  opts.on('--set SET', %w[tune check all], 'Questions to ask: tune, check or all (default)')
-  opts.on('--trials N', Integer, 'Answers per question and condition (default 3)')
-  opts.on('--jobs N', Integer, 'Answers produced at once (default 4)')
-  opts.on('--only ID,...', Array, 'Ask only these questions')
-  opts.on('--baseline-from DIR', 'Take the answers without tools from an earlier run instead of asking again')
-end
-parser.parse!(into: options)
-out = ARGV.fetch(0) { abort parser.help }
+options, out = BladeMcp::Bench.options('Usage: bundle exec ruby benchmark/decisions.rb [options] OUT_DIR')
 
 JUDGE = {
   type: 'function',
@@ -50,64 +38,19 @@ def prompt(question, tools, skill)
 end
 
 chat = BladeMcp::Bench::HerokuConsultant.from_env or abort 'benchmark: INFERENCE_URL and INFERENCE_KEY are not set'
-if options[:consultant] == 'heroku'
-  statements = BladeMcp::Statements.new(BladeMcp::DB.connect)
-  search = BladeMcp::Search.new(statements, embedder: BladeMcp::Inference::Embedding.from_env,
-                                            reranker: BladeMcp::Inference::Rerank.from_env)
-  context = {statements:, matz_search: search}
-  ask = lambda do |question, tools|
-    # A client passes on what the server says about itself at initialize, which Claude Code does by itself.
-    system = tools ? "#{prompt(question, true, options[:skill])}\n\n#{BladeMcp::App::INSTRUCTIONS}" : prompt(question, false, nil)
-    chat.ask(system, question['question'], context:, date_to: question['date_to'], tools:)
-  end
-else
-  claude = BladeMcp::Bench::ClaudeCode.new(options[:consultant])
-  ask = lambda do |question, tools|
-    if tools
-      mcp = {command: RbConfig.ruby, args: [File.join(__dir__, 'server.rb')], env: {BENCH_DATE_TO: question['date_to'].to_s}}
-      allowed = %w[mcp__blade__search_matz mcp__blade__matz_timeline]
-    end
-    begin
-      claude.ask(prompt(question, tools, options[:skill]), question['question'], mcp:, allowed: allowed.to_a)
-    rescue RuntimeError => e
-      warn "#{question['id']}: asking again after #{e.message[0, 200]}"
-      claude.ask(prompt(question, tools, options[:skill]), question['question'], mcp:, allowed: allowed.to_a)
-    end
-  end
-end
+ask = BladeMcp::Bench.consultant(options, chat) { |question, tools| prompt(question, tools, options[:skill]) }
 
 FileUtils.mkdir_p(out)
-questions = BladeMcp::Bench.load('decisions.yml').select { |q| options[:set] == 'all' || q['set'] == options[:set] }
-                                  .select { |q| !options[:only] || options[:only].include?(q['id']) }
-results = {}
-jobs = []
-questions.each do |question|
-  path = File.join(out, "#{question['id']}.json")
-  next if File.exist?(path)
-
-  result = results[path] = question.merge('baseline' => Array.new(options[:trials]), 'tools' => Array.new(options[:trials]))
-  if options[:'baseline-from']
-    result['baseline'] = JSON.parse(File.read(File.join(options[:'baseline-from'], "#{question['id']}.json")))['baseline']
-  else
-    options[:trials].times { |trial| jobs << [question, path, 'baseline', trial] }
-  end
-  options[:trials].times { |trial| jobs << [question, path, 'tools', trial] }
-end
-
-lock = Mutex.new
-BladeMcp::Bench.each_job(jobs, options[:jobs]) do |question, path, condition, trial|
-  run = ask.(question, condition == 'tools')
+questions = BladeMcp::Bench.questions('decisions.yml', options)
+BladeMcp::Bench.answers(questions, out, options) do |question, condition, trial|
+  run = ask.(question, question['question'], condition == 'tools')
   user = "Question:\n#{question['question']}\n\nWhat matz actually decided:\n#{question['truth']}\n\nPrediction:\n#{run[:answer]}"
   run[:score] = BladeMcp::Bench.grade(chat, user, JUDGE)
   warn "#{question['id']} #{condition} #{trial + 1}: #{run[:score].values_at('decision', 'reasons')} #{run[:calls].size} calls"
-  lock.synchronize do
-    result = results.fetch(path)
-    result[condition][trial] = run
-    File.write(path, JSON.pretty_generate(result)) if (result['baseline'] + result['tools']).none?(&:nil?)
-  end
+  run
 end
 
-mean = ->(values) { values.empty? ? 0 : (values.sum.to_f / values.size).round(2) }
+mean = BladeMcp::Bench.method(:mean)
 score = ->(runs) { "#{mean.(runs.map { |run| run.dig('score', 'decision') })} / #{mean.(runs.map { |run| run.dig('score', 'reasons') })}" }
 done = Dir[File.join(out, '*.json')].map { |path| JSON.parse(File.read(path)) }.sort_by { |r| [r['set'], r['decided'].to_s, r['id']] }
 report = ["# #{options[:consultant]}#{' with the skill' if options[:skill]}", '',

@@ -21,6 +21,94 @@ module BladeMcp
       YAML.load_file(File.join(__dir__, name), permitted_classes: [Date])
     end
 
+    # The options both runners take, parsed into a hash. OUT_DIR is left in ARGV.
+    def options(banner)
+      options = {consultant: 'heroku', set: 'all', trials: 3, jobs: 4}
+      parser = OptionParser.new do |opts|
+        opts.banner = banner
+        opts.on('--consultant NAME', 'heroku for the chat model of Heroku Managed Inference, or a Claude Code model such as opus')
+        opts.on('--skill PATH', 'Give the consultant this skill along with the tools')
+        opts.on('--set SET', %w[tune check all], 'Questions to ask: tune, check or all (default)')
+        opts.on('--trials N', Integer, 'Answers per question and condition (default 3)')
+        opts.on('--jobs N', Integer, 'Answers produced at once (default 4)')
+        opts.on('--only ID,...', Array, 'Ask only these questions')
+        opts.on('--baseline-from DIR', 'Take the answers without tools from an earlier run instead of asking again')
+      end
+      parser.parse!(into: options)
+      [options, ARGV.fetch(0) { abort parser.help }]
+    end
+
+    def questions(name, options)
+      load(name).select { |question| options[:set] == 'all' || question['set'] == options[:set] }
+                .select { |question| !options[:only] || options[:only].include?(question['id']) }
+    end
+
+    # Returns a lambda that asks the consultant one question, with the tools or without them. The block gives the
+    # system prompt for a question and condition. chat is the Heroku chat model, which the benchmark grades with in
+    # either case, and which is the consultant itself unless a Claude Code model was named; sharing the one client
+    # keeps the whole run within the requests a minute Heroku allows.
+    def consultant(options, chat, &prompt)
+      if options[:consultant] == 'heroku'
+        statements = Statements.new(DB.connect)
+        search = Search.new(statements, embedder: Inference::Embedding.from_env, reranker: Inference::Rerank.from_env)
+        context = {statements:, matz_search: search}
+        lambda do |question, request, tools|
+          # A client passes on what the server says about itself at initialize, which Claude Code does by itself.
+          system = tools ? "#{prompt.(question, true)}\n\n#{App::INSTRUCTIONS}" : prompt.(question, false)
+          chat.ask(system, request, context:, date_to: question['date_to'], tools:)
+        end
+      else
+        claude = ClaudeCode.new(options[:consultant])
+        lambda do |question, request, tools|
+          if tools
+            mcp = {command: RbConfig.ruby, args: [File.join(__dir__, 'server.rb')], env: {BENCH_DATE_TO: question['date_to'].to_s}}
+            allowed = %w[mcp__blade__search_matz mcp__blade__matz_timeline]
+          end
+          begin
+            claude.ask(prompt.(question, tools), request, mcp:, allowed: allowed.to_a)
+          rescue RuntimeError => e
+            warn "#{question['id']}: asking again after #{e.message[0, 200]}"
+            claude.ask(prompt.(question, tools), request, mcp:, allowed: allowed.to_a)
+          end
+        end
+      end
+    end
+
+    # Runs the block for every question in both conditions, on as many threads as the options allow, and writes a
+    # question's answers to its own file as soon as they are all in. A question whose file is already there is left
+    # alone, so an interrupted run goes on where it stopped.
+    def answers(questions, out, options)
+      results = {}
+      jobs = []
+      questions.each do |question|
+        path = File.join(out, "#{question['id']}.json")
+        next if File.exist?(path)
+
+        result = results[path] = question.merge('baseline' => Array.new(options[:trials]), 'tools' => Array.new(options[:trials]))
+        if options[:'baseline-from']
+          result['baseline'] = JSON.parse(File.read(File.join(options[:'baseline-from'], "#{question['id']}.json")))['baseline']
+        else
+          options[:trials].times { |trial| jobs << [question, path, 'baseline', trial] }
+        end
+        options[:trials].times { |trial| jobs << [question, path, 'tools', trial] }
+      end
+
+      lock = Mutex.new
+      each_job(jobs, options[:jobs]) do |question, path, condition, trial|
+        run = yield(question, condition, trial)
+        lock.synchronize do
+          result = results.fetch(path)
+          result[condition][trial] = run
+          File.write(path, JSON.pretty_generate(result)) if (result['baseline'] + result['tools']).none?(&:nil?)
+        end
+      end
+    end
+
+    def mean(values)
+      values = values.compact
+      values.empty? ? 0 : (values.sum.to_f / values.size).round(2)
+    end
+
     def patiently
       10.times do
         return yield
